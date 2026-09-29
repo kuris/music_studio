@@ -58,7 +58,7 @@ enum StyleWriter {
                     switch answer {
                     case .wrote(let line):
                         group.cancelAll()
-                        return (line, notes)
+                        return ("\(model)|\(line)", notes)     // which model wrote it, for the log
                     case .again(let why), .no(let why):
                         notes.append("\(model) \(why)")
                         // Every model has now refused: fall back at once rather than sit out
@@ -68,13 +68,30 @@ enum StyleWriter {
                 }
                 return (nil, notes)
             }
-            if let line = raced.0 {
-                return (line, "Gemini가 스타일을 썼습니다 (\(line.split(separator: ",").count)개 항목)"
+            if let tagged = raced.0, let bar = tagged.firstIndex(of: "|") {
+                let model = String(tagged[..<bar])
+                let line = String(tagged[tagged.index(after: bar)...])
+                return (line, "Gemini \(model)가 스타일을 썼습니다 "
+                        + "(\(line.split(separator: ",").count)개 항목)"
                         + (raced.1.isEmpty ? "" : " · 다른 모델: \(raced.1.joined(separator: " · "))"))
             }
             trouble += raced.1
+
+            // The whole flash line turned us away. Older models keep their own quota, so one
+            // last ask before the preset stands.
+            for model in Gemini.lastResort where !models.contains(model) {
+                switch await gemini(model: model, key: key, prompt: ask) {
+                case .wrote(let line):
+                    return (line, "Gemini \(model)가 스타일을 썼습니다 "
+                            + "(\(line.split(separator: ",").count)개 항목)"
+                            + " · 앞선 모델: \(raced.1.joined(separator: " · "))")
+                case .again(let why), .no(let why):
+                    trouble.append("\(model) \(why)")
+                }
+            }
         }
 
+        trouble.append(onDeviceState())
         if let line = await onDevice(prompt: ask) {
             return (line, "기기 내 모델이 스타일을 썼습니다 (\(line.split(separator: ",").count)개 항목)"
                     + " · Gemini: \(trouble.joined(separator: " · "))")
@@ -233,6 +250,24 @@ enum StyleWriter {
         }
         return value.replacingOccurrences(of: "\\n", with: " ")
             .replacingOccurrences(of: "\\\"", with: "\"")
+    }
+
+    /// Whether the Mac's own model is there to ask — in words, because a fallback that quietly
+    /// does nothing looks exactly like one that was never written.
+    private static func onDeviceState() -> String {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            switch SystemLanguageModel.default.availability {
+            case .available: return "기기 내 모델 사용 가능"
+            case .unavailable(.appleIntelligenceNotEnabled): return "기기 내 모델: Apple Intelligence 꺼짐"
+            case .unavailable(.modelNotReady): return "기기 내 모델: 아직 내려받는 중"
+            case .unavailable(let reason): return "기기 내 모델 사용 불가 (\(reason))"
+            }
+        }
+        return "기기 내 모델: macOS 26 필요"
+        #else
+        return "기기 내 모델: 이 빌드에 없음"
+        #endif
     }
 
     /// The model on this Mac, for when Gemini will not answer at all.

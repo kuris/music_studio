@@ -28,6 +28,11 @@ struct WrittenLyrics {
 enum Gemini {
     static let flashLine = ["gemini-3.5-flash", "gemini-3.6-flash",
                             "gemini-3.7-flash", "gemini-3.8-flash"]
+
+    /// Asked only after every model above has refused. Quotas are counted per model, so a
+    /// previous generation still has its own allowance on a key whose 3.x is spent — which is
+    /// the difference between a written style and the bare preset on a busy night.
+    static let lastResort = ["gemini-2.5-flash", "gemini-2.0-flash"]
 }
 
 /// Gemini REST API or on-device model for lyric writing and song title generation.
