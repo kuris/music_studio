@@ -82,7 +82,7 @@ class YouTubeConverter: ObservableObject {
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             guard let self = self else { return }
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else { handle.readabilityHandler = nil; return }   // EOF: stop the source
             let text = String(data: data, encoding: .utf8) ?? ""
 
             // Parse yt-dlp progress lines
@@ -136,7 +136,7 @@ class YouTubeConverter: ObservableObject {
         errorPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             guard let self = self else { return }
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else { handle.readabilityHandler = nil; return }   // EOF: stop the source
             let text = String(data: data, encoding: .utf8) ?? ""
             let lines = text.components(separatedBy: "\n").filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             for line in lines {
@@ -150,6 +150,9 @@ class YouTubeConverter: ObservableObject {
 
         // Wait for process to finish
         process?.waitUntilExit()
+        // Belt and braces: a handler that never saw EOF would keep its source alive.
+        outputPipe.fileHandleForReading.readabilityHandler = nil
+        errorPipe.fileHandleForReading.readabilityHandler = nil
 
         let exitStatus = process?.terminationStatus ?? -1
 

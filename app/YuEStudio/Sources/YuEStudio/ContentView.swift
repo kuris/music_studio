@@ -764,9 +764,21 @@ struct ContentView: View {
                                         .font(.caption)
                                         .bold()
                                         .foregroundStyle(Color.whiteTextPrimary)
-                                    Text("\(String(format: "%.1f", song.seconds)) s · seed \(song.seed)")
+                                    Text("\(String(format: "%.1f", song.seconds)) s · seed \(song.seed)"
+                                         + (song.quality == "draft" ? " · draft" : ""))
                                         .font(.caption2)
                                         .foregroundStyle(Color.whiteTextSecondary)
+                                }
+                                Spacer()
+                                // The saved tokens are enough to re-synthesize: a draft preview,
+                                // or a song whose synthesis never finished, becomes a full render
+                                // without generating the song again.
+                                if song.quality == "draft" || song.status == .stalled {
+                                    Button(song.status == .stalled ? "이어서 렌더링" : "full 품질로 렌더링") {
+                                        backend.render(song, engine: "auto", quality: "full", engines: engines)
+                                    }
+                                    .font(.caption2)
+                                    .disabled(!backend.connected)
                                 }
                             }
                         }
@@ -791,6 +803,9 @@ struct ContentView: View {
             HStack {
                 Text("대기열").bold()
                 Spacer()
+                if backend.busy {
+                    Button("중지") { backend.stop() }.font(.caption)
+                }
                 let queued = backend.songs.filter { $0.status == .queued }.count
                 let running = backend.songs.filter { $0.inFlight && $0.status != .queued }.count
                 let parts = [running > 0 ? "진행 중 \(running) 곡" : "", queued > 0 ? "대기 \(queued) 곡" : ""]

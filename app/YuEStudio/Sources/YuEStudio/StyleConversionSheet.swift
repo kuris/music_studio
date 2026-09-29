@@ -14,6 +14,13 @@ struct StyleConversionSheet: View {
     @AppStorage("seed") private var seed = 831001
     @AppStorage("maxSeconds") private var maxSeconds = 120.0
     @AppStorage("instrumental") private var instrumental = false
+    // A cover follows the main form's quality setting rather than forcing its own, so the
+    // choice stays in one place; the sheet shows which one it will use.
+    @AppStorage("qualityMode") private var qualityMode = "draft-gpu"
+    @AppStorage("batch") private var batch = 2
+    @AppStorage("randomSeed") private var randomSeed = false
+    private var quality: String { qualityMode.hasPrefix("draft") ? "draft" : "full" }
+    private var engines: String { qualityMode.hasSuffix("-ane") ? "gpu+ane" : "gpu" }
     @State private var selectedStyle = ""
     @State private var converting = false
 
@@ -51,6 +58,16 @@ struct StyleConversionSheet: View {
                     Text("여성").tag("female")
                     Text("남성").tag("male")
                     Text("듀엣").tag("duet")
+                }.pickerStyle(.segmented).labelsHidden()
+            }.frame(maxWidth: .infinity, alignment: .leading)
+
+            // How many candidates to generate. Shared with the main Generate button, which
+            // has no control of its own. The worker batches tokenizing by what memory allows
+            // and queues the rest, so asking for more than that still works.
+            VStack(alignment: .leading, spacing: 6) {
+                Text("동시 생성").font(.subheadline).foregroundStyle(.secondary)
+                Picker("", selection: $batch) {
+                    ForEach(1...4, id: \.self) { Text("\($0)곡").tag($0) }
                 }.pickerStyle(.segmented).labelsHidden()
             }.frame(maxWidth: .infinity, alignment: .leading)
 
@@ -106,14 +123,14 @@ struct StyleConversionSheet: View {
                         lyrics: lyrics,
                         cot: "melody",
                         seed: seed,
-                        randomSeed: false,
-                        batch: 1,
+                        randomSeed: randomSeed,
+                        batch: batch,
                         maxTokens: Int(maxSeconds * 25),
                         engine: "auto",
                         abc: abc,
                         abcOpen: abcOpen,
-                        quality: "full",
-                        engines: "gpu+ane",
+                        quality: quality,
+                        engines: engines,
                         instrumental: instrumental
                     )
                     converting = false
@@ -167,6 +184,10 @@ struct StyleConversionSheet: View {
                   : "가사 \(lyrics.split(separator: "\n").filter { !$0.hasPrefix("[") && !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count)줄 사용",
                   systemImage: lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "exclamationmark.triangle" : "checkmark.circle")
                 .foregroundStyle(lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.orange : Color.secondary)
+            Label("품질: " + (quality == "draft" ? "draft · 8단계 (빠른 미리보기)"
+                                                : "full · 32단계" + (engines == "gpu" ? " · GPU" : " · Neural Engine + GPU"))
+                  + " · \(batch)곡",
+                  systemImage: "dial.medium")
             if !selectedStyle.isEmpty {
                 Label("제목: \(Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle))",
                       systemImage: "textformat")
