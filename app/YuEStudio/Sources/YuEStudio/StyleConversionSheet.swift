@@ -24,9 +24,6 @@ struct StyleConversionSheet: View {
     @State private var selectedStyle = ""
     @State private var converting = false
 
-    /// Appended to the style prompt: YuE2 takes the singer from the style text.
-    static let vocalTags = ["auto": "", "female": "female vocal", "male": "male vocal",
-                            "duet": "male and female duet vocals"]
 
 
     var body: some View {
@@ -42,10 +39,7 @@ struct StyleConversionSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("보컬").font(.subheadline).foregroundStyle(.secondary)
                 Picker("", selection: $vocal) {
-                    Text("자동").tag("auto")
-                    Text("여성").tag("female")
-                    Text("남성").tag("male")
-                    Text("듀엣").tag("duet")
+                    ForEach(Vocal.choices, id: \.key) { Text($0.label).tag($0.key) }
                 }.pickerStyle(.segmented).labelsHidden()
             }.frame(maxWidth: .infinity, alignment: .leading)
 
@@ -101,7 +95,7 @@ struct StyleConversionSheet: View {
                 // A conversion replaces the style outright. Appending would stack two
                 // genres and two tempos, which read as contradictory instructions.
                 if let prompt = StylePresets.prompt(selectedStyle) {
-                    style = Self.withVocal(Score.tempo(abc).map { Score.styleAtTempo(prompt, $0) } ?? prompt, vocal)
+                    style = Vocal.apply(Score.tempo(abc).map { Score.styleAtTempo(prompt, $0) } ?? prompt, vocal)
                 }
                 title = Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle)
                 // Generate cover song
@@ -194,14 +188,4 @@ struct StyleConversionSheet: View {
         return "\(base)_\(style)_커버"
     }
 
-    /// Style text carrying exactly one vocal tag — the chosen one, or none for "자동".
-    static func withVocal(_ style: String, _ vocal: String) -> String {
-        var parts = style.components(separatedBy: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { part in
-                !part.isEmpty && !vocalTags.values.contains { !$0.isEmpty && $0.caseInsensitiveCompare(part) == .orderedSame }
-            }
-        if let tag = vocalTags[vocal], !tag.isEmpty { parts.append(tag) }
-        return parts.joined(separator: ", ")
-    }
 }

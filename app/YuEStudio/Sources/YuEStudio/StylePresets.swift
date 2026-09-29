@@ -29,3 +29,32 @@ enum StylePresets {
     static let names: [String] = all.map(\.name)
     static func prompt(_ name: String) -> String? { all.first { $0.name == name }?.prompt }
 }
+
+/// The singer, which YuE2 reads from the style text rather than a request field.
+///
+/// Writing the choice straight into the style keeps it honest: it is visible in the prompt,
+/// it applies to every way a song is started, and there is only ever one such tag.
+enum Vocal {
+    static let choices: [(key: String, label: String, tag: String)] = [
+        ("auto", "자동", ""),
+        ("female", "여성", "female vocal"),
+        ("male", "남성", "male vocal"),
+        ("duet", "듀엣", "male and female duet vocals"),
+    ]
+
+    static func tag(_ key: String) -> String { choices.first { $0.key == key }?.tag ?? "" }
+
+    /// Style text carrying exactly the chosen vocal tag — replacing any previous one.
+    static func apply(_ style: String, _ key: String) -> String {
+        var parts = style.components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { part in
+                !part.isEmpty && !choices.contains {
+                    !$0.tag.isEmpty && $0.tag.caseInsensitiveCompare(part) == .orderedSame
+                }
+            }
+        let chosen = tag(key)
+        if !chosen.isEmpty { parts.append(chosen) }
+        return parts.joined(separator: ", ")
+    }
+}

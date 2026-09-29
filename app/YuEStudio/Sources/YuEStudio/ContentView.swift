@@ -269,6 +269,7 @@ struct ContentView: View {
     }
 
     @State private var showTagGuide = false
+    @AppStorage("styleVocal") private var vocal = "auto"
 
     // MARK: - Style Tags
     private var styleTagsSection: some View {
@@ -277,6 +278,13 @@ struct ContentView: View {
                 Text("스타일")
                     .font(.subheadline)
                     .foregroundStyle(Color.whiteTextPrimary)
+                // The singer applies to every way a song is started, not only a conversion,
+                // so it belongs here and writes itself into the prompt where it can be seen.
+                Picker("", selection: $vocal) {
+                    ForEach(Vocal.choices, id: \.key) { Text($0.label).tag($0.key) }
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
+                .onChange(of: vocal) { _, new in style = Vocal.apply(style, new) }
                 Spacer()
                 // Style Conversion Button (only show when ABC exists)
                 if !abc.isEmpty {
