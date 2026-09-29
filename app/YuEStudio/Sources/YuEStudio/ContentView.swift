@@ -196,9 +196,6 @@ struct ContentView: View {
                         .foregroundStyle(Color.whiteTextPrimary)
                     Spacer()
                     HStack(spacing: 8) {
-                        Toggle("가사 없이 (연주곡)", isOn: $instrumental)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
                         TextField("곡 제목", text: $title)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 140)
@@ -287,8 +284,11 @@ struct ContentView: View {
                 Picker("", selection: $vocal) {
                     ForEach(Vocal.choices, id: \.key) { Text($0.label).tag($0.key) }
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 220)
-                .onChange(of: vocal) { _, new in style = Vocal.apply(style, new) }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 280)
+                .onChange(of: vocal) { _, new in
+                    style = Vocal.apply(style, new)
+                    instrumental = (new == Vocal.instrumental)   // 악기 and 연주곡 are one choice
+                }
                 Spacer()
                 // Style Conversion Button (only show when ABC exists)
                 if !abc.isEmpty {

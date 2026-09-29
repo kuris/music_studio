@@ -42,6 +42,8 @@ struct StyleConversionSheet: View {
                 Picker("", selection: $vocal) {
                     ForEach(Vocal.choices, id: \.key) { Text($0.label).tag($0.key) }
                 }.pickerStyle(.segmented).labelsHidden()
+                    // 악기 is the same choice as the main form's 연주곡 switch.
+                    .onChange(of: vocal) { _, new in instrumental = (new == Vocal.instrumental) }
             }.frame(maxWidth: .infinity, alignment: .leading)
 
             // How many candidates to generate. Shared with the main Generate button, which

@@ -40,7 +40,11 @@ enum Vocal {
         ("female", "여성", "female vocal"),
         ("male", "남성", "male vocal"),
         ("duet", "듀엣", "male and female duet vocals"),
+        ("instrumental", "악기", "instrumental with no vocals"),
     ]
+
+    /// No singer at all — the choice that also turns the song into an instrumental.
+    static let instrumental = "instrumental"
 
     static func tag(_ key: String) -> String { choices.first { $0.key == key }?.tag ?? "" }
 
@@ -55,6 +59,14 @@ enum Vocal {
             .filter { !$0.isEmpty }
         parts.removeAll { part in
             choices.contains { !$0.tag.isEmpty && $0.tag.caseInsensitiveCompare(part) == .orderedSame }
+        }
+        if key == instrumental {
+            // An instrumental names no singer anywhere: a leftover "soaring male vocals" would
+            // ask the model for the very thing the choice rules out.
+            parts.removeAll { $0.range(of: "\\b(vocals?|vocalist|voices?|vox|sung|singer|singing|acappella|a cappella)\\b",
+                                       options: [.regularExpression, .caseInsensitive]) != nil }
+            parts.append(tag(key))
+            return parts.joined(separator: ", ")
         }
         guard let gender = ["female": "female", "male": "male", "duet": "male and female"][key] else {
             return parts.joined(separator: ", ")          // 자동: name no singer at all
