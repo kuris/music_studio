@@ -37,7 +37,9 @@ final class Backend: ObservableObject {
     @Published var videoError = ""
     private var videoID = ""
     private var videoTarget: Song?
-    private var videoStyle: LyricsVideo.Style = .bars
+    /// What a recognition run is for: the finished video, or only its timed lines.
+    enum VideoJob: Equatable { case video(LyricsVideo.Style), subtitles }
+    private var videoJob: VideoJob = .video(.bars)
     @Published var transcribeWarnings: [String] = []
     @Published var transcribeOutput = ""
     private var transcribeID = ""
@@ -256,13 +258,23 @@ final class Backend: ObservableObject {
     }
     func cancelTranscription() { send(["cmd": "transcribe_cancel", "id": transcribeID]) }
 
-    /// A lyric video for a finished song: recognise what it actually sings, then draw and encode.
-    /// The words come from the rendered audio rather than the form, so they match what is heard.
+    /// A lyric video for a finished song: recognise it to find the clock, then draw and encode.
+    /// The words on screen are the ones the song was written from; recognition only times them.
     func makeLyricsVideo(_ song: Song, title: String, style: LyricsVideo.Style = .bars) {
+        recogniseLyrics(of: song, for: .video(style))
+    }
+
+    /// The same timed lines as a SubRip file, for an editor that will do the final encode itself.
+    func makeSubtitles(_ song: Song) {
+        recogniseLyrics(of: song, for: .subtitles)
+    }
+
+    /// Both jobs start the same way: recognise the recording to put its words on a clock.
+    private func recogniseLyrics(of song: Song, for job: VideoJob) {
         guard videoSong.isEmpty, connected else { return }
         videoID = UUID().uuidString
         videoSong = song.id; videoDetail = "가사 인식 준비"; videoError = ""
-        videoTarget = song; videoStyle = style
+        videoTarget = song; videoJob = job
         send(["cmd": "transcribe", "id": videoID, "audio": song.path, "task": "melody-full",
               "offline": Paths.packaged, "lyrics": true, "lyrics_language": "auto", "lyrics_only": true])
     }
@@ -275,6 +287,20 @@ final class Backend: ObservableObject {
             guard let song = videoTarget else { videoSong = ""; return }
             let directory = URL(fileURLWithPath: obj["output"] as? String ?? song.directory.path)
             let title = song.title.isEmpty ? song.rowName : song.title
+            if videoJob == .subtitles {
+                do {
+                    let cues = try LyricsVideo.cues(inDirectory: directory, songDirectory: song.directory,
+                                                    duration: song.seconds)
+                    let file = try LyricsVideo.writeSubtitles(cues: cues, into: song.directory)
+                    append("자막 저장: \(file.lastPathComponent) (\(cues.filter { !$0.text.isEmpty }.count)줄)")
+                    NSWorkspace.shared.activateFileViewerSelecting([file])
+                } catch {
+                    videoError = error.localizedDescription
+                    append("자막 실패: \(error.localizedDescription)")
+                }
+                videoSong = ""; videoDetail = ""
+                return
+            }
             videoDetail = "슬라이드 생성"
             // A plain actor-isolated reporter, so the detached work never captures `self` itself.
             let report: @Sendable (String) -> Void = { [weak self] detail in
@@ -284,11 +310,12 @@ final class Backend: ObservableObject {
                 guard let self else { return }
                 do {
                     // Drawing stays on the main actor; only the encode is detached.
-                    let cues = try LyricsVideo.cues(inDirectory: directory, duration: song.seconds)
+                    let cues = try LyricsVideo.cues(inDirectory: directory, songDirectory: song.directory,
+                                                    duration: song.seconds)
                     let slides = try LyricsVideo.renderSlides(cues: cues, title: title, seed: song.seed,
                                                               into: directory, progress: report)
                     let audio = URL(fileURLWithPath: song.path)
-                    let style = self.videoStyle
+                    guard case let .video(style) = self.videoJob else { return }
                     let url = try await Task.detached(priority: .userInitiated) {
                         try LyricsVideo.encode(slides: slides, audio: audio, style: style, seed: song.seed, progress: report)
                     }.value
@@ -302,7 +329,7 @@ final class Backend: ObservableObject {
             }
         case "failed":
             videoError = obj["message"] as? String ?? "가사 인식 실패"
-            append("가사 영상 실패: \(videoError)")
+            append("\(videoJob == .subtitles ? "자막" : "가사 영상") 실패: \(videoError)")
             videoSong = ""; videoDetail = ""
         default: break
         }

@@ -70,23 +70,15 @@ enum LyricsVideo {
 
     // MARK: - Cues
 
-    /// The timed lines the transcriber wrote next to the song.
-    static func cues(inDirectory directory: URL, duration: Double) throws -> [Cue] {
-        let path = directory.appendingPathComponent("lyrics.json")
-        guard let data = try? Data(contentsOf: path),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let lines = object["lines"] as? [[String: Any]], !lines.isEmpty else { throw Failure.noCues }
-        var cues = lines.compactMap { line -> Cue? in
-            guard var text = (line["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  let start = line["start"] as? Double else { return nil }
-            // Section markers are structure, not words to put on screen. The recognised text
-            // should not carry them, but a line is dropped rather than shown as "[Chorus]".
-            text = text.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "",
-                                             options: .regularExpression)
-                       .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return Cue(start: start, end: (line["end"] as? Double) ?? start + 3, text: text)
-        }.sorted { $0.start < $1.start }
+    /// The lines the song was asked to sing, timed against what the recording actually sings.
+    ///
+    /// The words are the ones typed into the form — `request.json` keeps them verbatim beside the
+    /// audio. Whisper only supplies the clock: it mishears sung Korean often enough ("투명한" heard
+    /// as "두 명의") that using its text put words on screen the song was never given.
+    static func cues(inDirectory directory: URL, songDirectory: URL, duration: Double) throws -> [Cue] {
+        let heard = recognised(inDirectory: directory)
+        let written = writtenLines(inDirectory: songDirectory)
+        var cues = written.isEmpty ? heard : timed(written, against: heard, duration: duration)
         guard !cues.isEmpty else { throw Failure.noCues }
         // Stretch each cue to the next one so the video never cuts to nothing between lines,
         // and let the last slide hold to the end of the song.
@@ -98,6 +90,204 @@ enum LyricsVideo {
             cues.insert(Cue(start: 0, end: cues[0].start, text: ""), at: 0)
         }
         return cues
+    }
+
+    /// Section markers are structure, not words to put on screen.
+    private static func spoken(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The lyrics the song was generated from, one displayable line each.
+    static func writtenLines(inDirectory directory: URL) -> [String] {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("request.json")),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let lyrics = object["lyrics"] as? String else { return [] }
+        return lyrics.components(separatedBy: .newlines).map(spoken).filter { !$0.isEmpty }
+    }
+
+    /// The timed lines the transcriber wrote next to the song; empty when it recognised nothing.
+    static func recognised(inDirectory directory: URL) -> [Cue] {
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("lyrics.json")),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let lines = object["lines"] as? [[String: Any]] else { return [] }
+        return lines.compactMap { line -> Cue? in
+            guard let start = line["start"] as? Double else { return nil }
+            let text = spoken((line["text"] as? String) ?? "")
+            guard !text.isEmpty else { return nil }
+            return Cue(start: start, end: (line["end"] as? Double) ?? start + 3, text: text)
+        }.sorted { $0.start < $1.start }
+    }
+
+    // MARK: - Lining the written words up with the sung ones
+
+    /// Letters and digits only, lowercased. Whisper spaces and punctuates sung Korean its own
+    /// way, so only the bare characters of the two texts can be compared.
+    private static func folded(_ text: String) -> [Character] {
+        text.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// A Hangul syllable's (initial, medial, final); nil for anything else.
+    private static func parts(_ character: Character) -> (Int, Int, Int)? {
+        guard character.unicodeScalars.count == 1,
+              let scalar = character.unicodeScalars.first,
+              (0xAC00...0xD7A3).contains(scalar.value) else { return nil }
+        let code = Int(scalar.value) - 0xAC00
+        return (code / 588, (code % 588) / 28, code % 28)
+    }
+
+    /// How alike two characters are. Hangul is judged by its parts, so a swallowed final
+    /// consonant ("기대여" for "기대어") still reads as very nearly the same syllable.
+    private static func affinity(_ a: Character, _ b: Character) -> Int {
+        if a == b { return 2 }
+        if let x = parts(a), let y = parts(b) {
+            if x.0 == y.0 && x.1 == y.1 { return 1 }
+            if x.0 == y.0 || x.1 == y.1 { return 0 }
+        }
+        return -1
+    }
+
+    /// Needleman–Wunsch: for each written character, the sung one it was heard as, or nil when
+    /// nothing matched. Being monotonic is what makes it safe on repeated choruses — a line can
+    /// only ever match after the line before it.
+    private static func alignment(_ written: [Character], _ sung: [Character]) -> [Int?] {
+        let n = written.count, m = sung.count
+        guard n > 0, m > 0 else { return Array(repeating: nil, count: n) }
+        let gap = -1
+        var previous = (0...m).map { $0 * gap }
+        var current = [Int](repeating: 0, count: m + 1)
+        // One move per cell: diagonal (1), up (2, a written character nothing was sung for),
+        // left (3, something sung that was never written).
+        var moves = [UInt8](repeating: 0, count: (n + 1) * (m + 1))
+        for i in 1...n {
+            let row = i * (m + 1)
+            current[0] = i * gap
+            moves[row] = 2
+            let character = written[i - 1]
+            for j in 1...m {
+                var best = previous[j - 1] + affinity(character, sung[j - 1])
+                var move: UInt8 = 1
+                if previous[j] + gap > best { best = previous[j] + gap; move = 2 }
+                if current[j - 1] + gap > best { best = current[j - 1] + gap; move = 3 }
+                current[j] = best
+                moves[row + j] = move
+            }
+            swap(&previous, &current)
+        }
+        var mapped = [Int?](repeating: nil, count: n)
+        var i = n, j = m
+        while i > 0 && j > 0 {
+            switch moves[i * (m + 1) + j] {
+            case 1: mapped[i - 1] = j - 1; i -= 1; j -= 1
+            case 2: i -= 1
+            default: j -= 1
+            }
+        }
+        return mapped
+    }
+
+    /// The written lines on the recording's clock.
+    private static func timed(_ lines: [String], against heard: [Cue], duration: Double) -> [Cue] {
+        // A moment for every recognised character, spread evenly across the cue it came from.
+        var sung: [Character] = [], clock: [Double] = []
+        for cue in heard {
+            let characters = folded(cue.text)
+            guard !characters.isEmpty else { continue }
+            let span = max(cue.end, cue.start + 0.1) - cue.start
+            for (k, character) in characters.enumerated() {
+                sung.append(character)
+                clock.append(cue.start + span * Double(k) / Double(characters.count))
+            }
+        }
+        var written: [Character] = [], owner: [Int] = []
+        for (index, line) in lines.enumerated() {
+            for character in folded(line) { written.append(character); owner.append(index) }
+        }
+        // A line starts when the first of its characters was heard — but only once enough of
+        // the line was heard to believe it. A single stray character matching is how a song
+        // that stops early used to drag all its remaining lines into the last few seconds.
+        var found = [Double?](repeating: nil, count: lines.count)
+        var matched = [Int](repeating: 0, count: lines.count)
+        var length = [Int](repeating: 0, count: lines.count)
+        let mapping = alignment(written, sung)
+        for (k, j) in mapping.enumerated() {
+            length[owner[k]] += 1
+            guard let j else { continue }
+            matched[owner[k]] += 1
+            if found[owner[k]] == nil { found[owner[k]] = clock[j] }
+        }
+        for i in found.indices where Double(matched[i]) < Double(length[i]) / 3 {
+            found[i] = nil
+        }
+        guard found.contains(where: { $0 != nil }) else { return spread(lines, over: duration) }
+
+        // Lines nothing matched — a phrase the singer swallowed, or one the model skipped — are
+        // spaced evenly between the lines on either side that did land.
+        var starts = [Double](repeating: 0, count: lines.count)
+        var last = -1
+        for i in found.indices {
+            guard let time = found[i] else { continue }
+            let from = last < 0 ? 0 : starts[last]
+            for gap in (last + 1)..<i {
+                starts[gap] = from + (time - from) * Double(gap - last) / Double(i - last)
+            }
+            starts[i] = time
+            last = i
+        }
+        var shown = lines.count
+        if last < lines.count - 1 {
+            // Nothing matched after `last`: the song ran out before its closing lines. Keep only
+            // as many as there is room to read rather than flashing the rest past the end.
+            let room = max(0, duration - starts[last])
+            let fits = min(lines.count - 1 - last, Int(room / minimumSlide))
+            let each = room / Double(fits + 1)
+            for gap in 0..<fits { starts[last + 1 + gap] = starts[last] + each * Double(gap + 1) }
+            shown = last + 1 + fits
+        }
+
+        var cues: [Cue] = []
+        for i in 0..<shown {
+            let start = max(cues.last.map { $0.start + 0.4 } ?? 0, starts[i])
+            cues.append(Cue(start: start, end: start + minimumSlide, text: lines[i]))
+        }
+        return cues
+    }
+
+    /// Nothing usable was recognised: lay the written lines out evenly, so the video is still
+    /// made from the right words even when the clock has to be guessed.
+    private static func spread(_ lines: [String], over duration: Double) -> [Cue] {
+        let each = max(minimumSlide, (duration > 0 ? duration : Double(lines.count) * 3) / Double(max(1, lines.count)))
+        return lines.enumerated().map { index, line in
+            Cue(start: Double(index) * each, end: Double(index + 1) * each, text: line)
+        }
+    }
+
+    // MARK: - Subtitles
+
+    /// The same cues as a SubRip file, for cutting the video in an editor instead of here.
+    /// The title card carries no words, so it is left out rather than written as a blank cue.
+    static func subtitles(_ cues: [Cue]) -> String {
+        func stamp(_ seconds: Double) -> String {
+            let total = max(0, seconds)
+            let whole = Int(total)
+            return String(format: "%02d:%02d:%02d,%03d", whole / 3600, (whole % 3600) / 60, whole % 60,
+                          Int(((total - Double(whole)) * 1000).rounded()))
+        }
+        var blocks: [String] = []
+        for cue in cues where !cue.text.isEmpty {
+            blocks.append("\(blocks.count + 1)\n\(stamp(cue.start)) --> \(stamp(max(cue.end, cue.start + 0.2)))\n\(cue.text)\n")
+        }
+        return blocks.joined(separator: "\n")
+    }
+
+    /// Writes the cues beside the song as lyrics.srt. Returns the file.
+    @discardableResult
+    static func writeSubtitles(cues: [Cue], into directory: URL) throws -> URL {
+        let text = subtitles(cues)
+        guard !text.isEmpty else { throw Failure.noCues }
+        let file = directory.appendingPathComponent("lyrics.srt")
+        try text.write(to: file, atomically: true, encoding: .utf8)
+        return file
     }
 
     // MARK: - Slides

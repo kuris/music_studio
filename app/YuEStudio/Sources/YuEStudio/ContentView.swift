@@ -833,6 +833,12 @@ struct ContentView: View {
                                         .menuStyle(.borderlessButton)
                                         .font(.caption2).fixedSize()
                                         .disabled(!backend.connected || !backend.videoSong.isEmpty)
+                                        // The video's own timing, as a file: the same lines, for
+                                        // whoever does the final encode in an editor instead.
+                                        Button("자막 SRT") { backend.makeSubtitles(song) }
+                                            .font(.caption2)
+                                            .help("입력한 가사를 노래에 맞춰 타이밍한 lyrics.srt를 곡 폴더에 저장합니다")
+                                            .disabled(!backend.connected || !backend.videoSong.isEmpty)
                                     }
                                 }
                                 if song.quality == "draft" && song.status != .stalled {
