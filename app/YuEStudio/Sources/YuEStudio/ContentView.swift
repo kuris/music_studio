@@ -770,11 +770,18 @@ struct ContentView: View {
                                         .foregroundStyle(Color.whiteTextSecondary)
                                 }
                                 Spacer()
-                                // The saved tokens are enough to re-synthesize: a draft preview,
-                                // or a song whose synthesis never finished, becomes a full render
-                                // without generating the song again.
-                                if song.quality == "draft" || song.status == .stalled {
-                                    Button(song.status == .stalled ? "이어서 렌더링" : "full 품질로 렌더링") {
+                                // The saved tokens are enough to re-synthesize without generating
+                                // the song again. A song that never finished synthesis picks up at
+                                // the form's quality — a draft preview first, the working habit —
+                                // and a draft that earned it goes to the full render.
+                                if song.status == .stalled {
+                                    Button("이어서 렌더링 · \(quality == "draft" ? "8" : "32")단계") {
+                                        backend.render(song, engine: "auto", quality: quality, engines: engines)
+                                    }
+                                    .font(.caption2)
+                                    .disabled(!backend.connected)
+                                } else if song.quality == "draft" {
+                                    Button("full 품질로 렌더링 · 32단계") {
                                         backend.render(song, engine: "auto", quality: "full", engines: engines)
                                     }
                                     .font(.caption2)
