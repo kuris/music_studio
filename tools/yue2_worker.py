@@ -21,7 +21,8 @@ Requests: {"cmd": "generate", "style", "lyrics", "cot": "full|melody|off", "seed
                                                      its 2.8 GB unmapped. title: names the run folder and is stored with each song)
           {"cmd": "render", "path": song directory or its audio.flac, "quality": "full|draft", "engines": "gpu|gpu+ane"}
           {"cmd": "cancel", "path"}   {"cmd": "stop"}   {"cmd": "ping"}   {"cmd": "quit"}
-          {"cmd": "transcribe", "id", "audio", "task": "melody-full|melody-vocal", "offline": bool}
+          {"cmd": "transcribe", "id", "audio", "task": "melody-full|melody-vocal", "offline": bool,
+           "lyrics": bool, "lyrics_language": "auto|ko|en|..."}
           {"cmd": "transcribe_cancel", "id"}
 Events:   {"event": "ready"}   {"event": "log", "message"}   {"event": "pong"}   {"event": "error", "message"}
           {"event": "started", "job", "output", "songs": [{"index", "seed", "path", "priority"}]}
@@ -1041,6 +1042,8 @@ def run_transcribe(req):
                "--threads", str(min(8, os.cpu_count() or 4))]
         if req.get("offline"):
             cmd.append("--offline")
+        cmd.append("--lyrics" if req.get("lyrics", True) else "--no-lyrics")
+        cmd += ["--lyrics-language", str(req.get("lyrics_language", "auto"))]
         log(f"Transcribing '{audio.name}' with SheetSage2")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)   # stderr inherited
         TRANSCRIBE_PROC[0] = proc

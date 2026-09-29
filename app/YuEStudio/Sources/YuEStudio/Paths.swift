@@ -31,12 +31,15 @@ struct Paths {
     }
     static var installedMarker: URL { support.appendingPathComponent("installed.json") }
     static var bundledVersion: String { (try? String(contentsOf: payload!.appendingPathComponent("version.txt"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "dev" }
+    /// Hash of what the Python environment is built from; unchanged means the venv can be reused.
+    static var bundledRecipe: String { (try? String(contentsOf: payload!.appendingPathComponent("recipe.txt"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "dev" }
     // SheetSage2 transcription lives in a second environment (its pins conflict with YuE's).
     static var sheetsageEnv: URL { support.appendingPathComponent("sheetsage-env") }
     static var sheetsagePython: URL { packaged ? sheetsageEnv.appendingPathComponent("bin/python") : repoRoot.appendingPathComponent(".venv-sheetsage2/bin/python") }
     static var sheetsageMarker: URL { support.appendingPathComponent("sheetsage-installed.json") }
     /// Every repo the worker loads at runtime; installers fetch these before the worker is used.
-    static let cachedRepos = ["m-a-p--YuE2-3B", "m-a-p--YuE2-Vae", "m-a-p--SheetSage2", "m-a-p--MERT-v2-FullSong"]
+    static let cachedRepos = ["m-a-p--YuE2-3B", "m-a-p--YuE2-Vae", "m-a-p--SheetSage2",
+                              "m-a-p--MERT-v2-FullSong", "openai--whisper-large-v3-turbo"]
     static var modelsCached: Bool {
         let hub = models.appendingPathComponent("hub")
         return cachedRepos.allSatisfy {

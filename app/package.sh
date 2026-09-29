@@ -10,7 +10,11 @@ APP="$DIST/YuE Studio.app"
 APPICON="$ROOT/app/YuEStudio/Sources/YuEStudio/Resources/AppIcon.icon"
 DMG="$DIST/YuE-Studio.dmg"
 UV="${UV:-$(command -v uv)}"
-VERSION="$(date +%Y%m%d)-$(cat "$ROOT"/src/yue2/*.py "$ROOT"/src/yue2/ane/*.py "$ROOT"/tools/yue2_worker.py "$ROOT"/tools/transcribe_sheetsage.py "$ROOT"/tools/download_models.py "$ROOT"/pyproject.toml | shasum | cut -c1-8)"
+VERSION="$(date +%Y%m%d)-$(cat "$ROOT"/src/yue2/*.py "$ROOT"/src/yue2/ane/*.py "$ROOT"/tools/yue2_worker.py "$ROOT"/tools/transcribe_sheetsage.py "$ROOT"/tools/lyrics_asr.py "$ROOT"/tools/download_models.py "$ROOT"/pyproject.toml | shasum | cut -c1-8)"
+# What the installed environment is built from. Only a change here needs the venv rebuilt and the
+# packages reinstalled; a version that moves while this holds still is a source-only update, which
+# the installer satisfies by rsyncing the payload — no network, no multi-GB round trip.
+RECIPE="$(cat "$ROOT"/pyproject.toml "$ROOT"/src/yue2/*.py "$ROOT"/src/yue2/ane/*.py | shasum | cut -c1-8)"
 
 if [ -e "$APP" ]; then
   echo "== removing previously built $APP"
@@ -77,11 +81,13 @@ PLIST
 echo "== payload"
 cp "$UV" "$APP/Contents/Resources/payload/uv"
 echo "$VERSION" > "$APP/Contents/Resources/payload/version.txt"
+echo "$RECIPE" > "$APP/Contents/Resources/payload/recipe.txt"
 rsync -a --exclude '__pycache__' --exclude '*.pyc' \
   "$ROOT/pyproject.toml" "$ROOT/README.md" "$ROOT/LICENSE" "$ROOT/MODEL_LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/MANIFEST.in" "$ROOT/licenses" \
   "$ROOT/src" "$ROOT/examples" "$APP/Contents/Resources/payload/yue2-src/"
 mkdir -p "$APP/Contents/Resources/payload/yue2-src/tools"
-cp "$ROOT/tools/yue2_worker.py" "$ROOT/tools/download_models.py" "$ROOT/tools/transcribe_sheetsage.py" "$APP/Contents/Resources/payload/yue2-src/tools/"
+cp "$ROOT/tools/yue2_worker.py" "$ROOT/tools/download_models.py" "$ROOT/tools/transcribe_sheetsage.py" \
+   "$ROOT/tools/lyrics_asr.py" "$APP/Contents/Resources/payload/yue2-src/tools/"
 
 echo "== app icon"
 

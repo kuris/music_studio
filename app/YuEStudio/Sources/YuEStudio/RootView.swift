@@ -12,7 +12,13 @@ struct RootView: View {
             default: SetupView()
             }
         }
-        .onAppear { installer.check(); NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
+        .onAppear {
+            installer.check()
+            // A build that only changed Python source updates itself silently rather than
+            // sending the user through the setup screen for a rebuild it does not need.
+            _ = installer.updateSourceIfPossible()
+            NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true)
+        }
         .onChange(of: installer.state) { _, new in if new == .ready { backend.start() } }
     }
 }

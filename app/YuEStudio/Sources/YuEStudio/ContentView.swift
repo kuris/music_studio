@@ -84,7 +84,7 @@ struct ContentView: View {
         .onChange(of: backend.connected) { _, up in if up { backend.useRemote(useRemote ? remote.phone : nil) } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in backend.rescan() }
         .sheet(item: $transcribeSource) { picked in
-            TranscribeSheetView(source: picked.url, hum: picked.hum, abc: $abc, abcOpen: $abcOpen, cot: $cot, sheetsage: sheetsage).environmentObject(backend)
+            TranscribeSheetView(source: picked.url, hum: picked.hum, abc: $abc, abcOpen: $abcOpen, cot: $cot, lyrics: $lyrics, sheetsage: sheetsage).environmentObject(backend)
         }
         .sheet(isPresented: $showTranscribeSheet) {
             // Empty view to trigger the transcribe sheet with audio upload

@@ -4,8 +4,21 @@ struct StyleConversionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var backend: Backend
     @AppStorage("style") private var style = ""
+    @AppStorage("styleVocal") private var vocal = "auto"
+    // The cover keeps the form's melody and words — the same values the main Generate button uses.
+    @AppStorage("lyrics") private var lyrics = ""
+    @AppStorage("abc") private var abc = ""
+    @AppStorage("abcOpen") private var abcOpen = false
+    @AppStorage("title") private var title = ""
+    @AppStorage("seed") private var seed = 831001
+    @AppStorage("maxSeconds") private var maxSeconds = 120.0
+    @AppStorage("instrumental") private var instrumental = false
     @State private var selectedStyle = ""
     @State private var converting = false
+
+    /// Appended to the style prompt: YuE2 takes the singer from the style text.
+    static let vocalTags = ["auto": "", "female": "female vocal", "male": "male vocal",
+                            "duet": "male and female duet vocals"]
 
     let styleTags = [
         "시티팝": "Korean city pop, warm analog synth, smooth bass, 95 BPM",
@@ -28,6 +41,17 @@ struct StyleConversionSheet: View {
             Text("원곡의 멜로디를 유지하면서 스타일을 변경합니다.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+
+            // Vocal Selection
+            VStack(alignment: .leading, spacing: 6) {
+                Text("보컬").font(.subheadline).foregroundStyle(.secondary)
+                Picker("", selection: $vocal) {
+                    Text("자동").tag("auto")
+                    Text("여성").tag("female")
+                    Text("남성").tag("male")
+                    Text("듀엣").tag("duet")
+                }.pickerStyle(.segmented).labelsHidden()
+            }.frame(maxWidth: .infinity, alignment: .leading)
 
             // Style Selection Grid
             ScrollView {
@@ -74,23 +98,26 @@ struct StyleConversionSheet: View {
                         style = style + ", " + prompt
                     }
                 }
+                // The singer is part of the style prompt; replace any previous choice
+                // rather than stacking contradictory ones.
+                style = Self.withVocal(style, vocal)
                 // Generate cover song
                 Task {
-                    await backend.generate(
-                        title: "",
+                    backend.generate(
+                        title: title.trimmingCharacters(in: .whitespaces),
                         style: style,
-                        lyrics: "",
+                        lyrics: lyrics,
                         cot: "melody",
-                        seed: 831001,
+                        seed: seed,
                         randomSeed: false,
                         batch: 1,
-                        maxTokens: 3000,
+                        maxTokens: Int(maxSeconds * 25),
                         engine: "auto",
-                        abc: "", // Will use existing ABC from background
-                        abcOpen: false,
+                        abc: abc,
+                        abcOpen: abcOpen,
                         quality: "full",
                         engines: "gpu+ane",
-                        instrumental: false
+                        instrumental: instrumental
                     )
                     converting = false
                     dismiss()
@@ -120,9 +147,25 @@ struct StyleConversionSheet: View {
             }
             .disabled(selectedStyle.isEmpty || converting)
 
+            if abc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("전사된 멜로디가 없습니다 — 먼저 원곡을 전사하면 그 멜로디를 유지한 채 스타일만 바뀝니다.")
+                    .font(.caption).foregroundStyle(.orange).multilineTextAlignment(.center)
+            }
+
             Spacer()
         }
         .padding(24)
-        .frame(width: 500, height: 600)
+        .frame(width: 500, height: 660)
+    }
+
+    /// Style text carrying exactly one vocal tag — the chosen one, or none for "자동".
+    static func withVocal(_ style: String, _ vocal: String) -> String {
+        var parts = style.components(separatedBy: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { part in
+                !part.isEmpty && !vocalTags.values.contains { !$0.isEmpty && $0.caseInsensitiveCompare(part) == .orderedSame }
+            }
+        if let tag = vocalTags[vocal], !tag.isEmpty { parts.append(tag) }
+        return parts.joined(separator: ", ")
     }
 }

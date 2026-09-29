@@ -28,6 +28,8 @@ final class Backend: ObservableObject {
     @Published var transcribeDetail = ""
     @Published var transcribeFraction: Double?   // nil = indeterminate
     @Published var transcribeABC = ""
+    @Published var transcribeLyrics = ""
+    @Published var transcribeSRT = ""            // path to lyrics.srt, "" when nothing was recognised
     @Published var transcribeWarnings: [String] = []
     @Published var transcribeOutput = ""
     private var transcribeID = ""
@@ -150,6 +152,8 @@ final class Backend: ObservableObject {
                     transcribeFraction = obj["fraction"] as? Double ?? transcribeFraction
                 case "done":
                     transcribeABC = obj["abc"] as? String ?? ""
+                    transcribeLyrics = obj["lyrics"] as? String ?? ""
+                    transcribeSRT = obj["srt"] as? String ?? ""
                     transcribeWarnings = obj["warnings"] as? [String] ?? []
                     transcribeOutput = obj["output"] as? String ?? ""
                     transcribe = .review
@@ -230,11 +234,13 @@ final class Backend: ObservableObject {
         }
     }
 
-    func startTranscription(audio: URL, task: String) {
+    func startTranscription(audio: URL, task: String, lyrics: Bool = true, lyricsLanguage: String = "auto") {
         transcribeID = UUID().uuidString
         transcribe = .transcribing; transcribeFraction = nil; transcribeDetail = "starting"
+        transcribeLyrics = ""; transcribeSRT = ""
         // Offline in packaged mode: the installer already downloaded the snapshot into HF_HOME.
-        send(["cmd": "transcribe", "id": transcribeID, "audio": audio.path, "task": task, "offline": Paths.packaged])
+        send(["cmd": "transcribe", "id": transcribeID, "audio": audio.path, "task": task,
+              "offline": Paths.packaged, "lyrics": lyrics, "lyrics_language": lyricsLanguage])
     }
     func cancelTranscription() { send(["cmd": "transcribe_cancel", "id": transcribeID]) }
     func stop() { send(["cmd": "stop"]); append("Stop sent") }

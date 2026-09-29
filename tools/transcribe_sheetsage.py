@@ -7,7 +7,8 @@ JSON object per line on stdout so the app worker can forward progress verbatim:
 
   {"stage": "starting", "detail": ...}
   {"stage": "progress", "fraction": 0..1 | absent, "detail": ...}
-  {"stage": "done", "abc": <score text>, "warnings": [...], "output": <dir>}
+  {"stage": "done", "abc": <score text>, "lyrics": <tagged text>, "srt": <path|"">,
+   "warnings": [...], "output": <dir>}
   {"stage": "failed", "code": "afconvert|abc_error|crash", "message": ...}
 
 Audio is decoded with macOS's own afconvert and handed to the model as a raw
@@ -16,6 +17,7 @@ standard library until the model actually loads.
 """
 
 import argparse
+import gc
 import hashlib
 import importlib.metadata
 import inspect
@@ -26,6 +28,8 @@ import sys
 import threading
 import time
 from pathlib import Path
+
+import lyrics_asr
 
 AFCONVERT = "/usr/bin/afconvert"
 
@@ -173,13 +177,35 @@ def run(args):
     if not (output / "score.abc").is_file():
         (output / "score.abc").write_text(abc, encoding="utf-8")
 
+    warnings = list(result.get("warnings", []))
+
+    # Lyrics come last: structure.lab now exists, so the words can be laid out under the
+    # sections, and SheetSage2's weights are freed before Whisper's are loaded. A failure
+    # here is reported as a warning — the melody is still perfectly usable without words.
+    lyrics, srt = "", ""
+    if args.lyrics:
+        del model
+        gc.collect()
+        if args.device == "mps":
+            torch.mps.empty_cache()
+        try:
+            recognised = lyrics_asr.transcribe(
+                args.audio, output, model_id=args.lyrics_model,
+                language=None if args.lyrics_language == "auto" else args.lyrics_language,
+                device=args.lyrics_device, offline=args.offline,
+                progress=lambda detail: say(stage="progress", detail=detail))
+            lyrics, srt = recognised["text"], recognised["srt"]
+            write_json(output / "lyrics.json", recognised)
+        except Exception as exc:
+            warnings.append(f"lyrics recognition failed: {type(exc).__name__}: {exc}")
+
     write_json(output / "transcription_manifest.json", {
-        "status": "complete", "warnings": result.get("warnings", []),
+        "status": "complete", "warnings": warnings,
         "seconds": round(time.time() - started, 1),
         "artifacts": {str(p.relative_to(output)): sha256(p)
                       for p in sorted(output.rglob("*")) if p.is_file()},
     })
-    say(stage="done", abc=abc, warnings=result.get("warnings", []), output=str(output))
+    say(stage="done", abc=abc, lyrics=lyrics, srt=srt, warnings=warnings, output=str(output))
     return 0
 
 
@@ -194,6 +220,12 @@ def main():
     parser.add_argument("--dtype", choices=("bf16", "fp32"), default="fp32")
     parser.add_argument("--max-seconds", type=float)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--lyrics", action=argparse.BooleanOptionalAction, default=True,
+                        help="recognise sung lyrics with Whisper after the melody run")
+    parser.add_argument("--lyrics-model", default=lyrics_asr.DEFAULT_MODEL)
+    parser.add_argument("--lyrics-language", default="auto",
+                        help="ISO code such as ko or en; 'auto' lets Whisper detect it")
+    parser.add_argument("--lyrics-device", default="mps", choices=("mps", "cpu"))
     args = parser.parse_args()
     try:
         return run(args)

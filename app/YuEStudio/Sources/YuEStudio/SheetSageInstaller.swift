@@ -9,8 +9,10 @@ final class SheetSageInstaller: ObservableObject {
     enum State: Equatable { case unknown, needed, running, ready, failed(String) }
     struct Step: Identifiable { let id: Int; let title: String; var done = false }
     static let recipe = "1"      // bump when the venv recipe or pins change to force a reinstall
+    /// Whisper runs on the SheetSage2 environment's own torch/transformers — weights only, no new pins.
+    static let lyricsRepo = "openai/whisper-large-v3-turbo"
     @Published var state: State = .unknown
-    @Published var steps: [Step] = [Step(id: 0, title: "Install Python 3.11"), Step(id: 1, title: "Download SheetSage2 (about 2 GB)"),
+    @Published var steps: [Step] = [Step(id: 0, title: "Install Python 3.11"), Step(id: 1, title: "Download SheetSage2 and the lyrics model (about 4 GB)"),
                                      Step(id: 2, title: "Create environment"), Step(id: 3, title: "Install PyTorch"),
                                      Step(id: 4, title: "Install SheetSage2 packages"), Step(id: 5, title: "Finish")]
     @Published var current = 0
@@ -27,7 +29,9 @@ final class SheetSageInstaller: ObservableObject {
         let fm = FileManager.default
         guard Paths.packaged else { state = fm.fileExists(atPath: Paths.sheetsagePython.path) ? .ready : .needed; return }
         let marker = (try? JSONSerialization.jsonObject(with: Data(contentsOf: Paths.sheetsageMarker)) as? [String: String])?["recipe"]
-        let modelPresent = fm.fileExists(atPath: Paths.models.appendingPathComponent("hub/models--m-a-p--SheetSage2").path)
+        let modelPresent = ["models--m-a-p--SheetSage2", "models--openai--whisper-large-v3-turbo"].allSatisfy {
+            fm.fileExists(atPath: Paths.models.appendingPathComponent("hub/\($0)").path)
+        }
         state = (marker == Self.recipe && fm.fileExists(atPath: Paths.sheetsagePython.path) && modelPresent) ? .ready : .needed
     }
 
@@ -36,10 +40,18 @@ final class SheetSageInstaller: ObservableObject {
         log.append(LogLine(time: f.string(from: Date()), message: message))
     }
 
+    /// True when the venv itself is already built to the current recipe, so an install that
+    /// only adds model weights (the lyrics model, say) can skip straight to the download.
+    private var environmentReady: Bool {
+        let marker = (try? JSONSerialization.jsonObject(with: Data(contentsOf: Paths.sheetsageMarker)) as? [String: String])?["recipe"]
+        return marker == Self.recipe && FileManager.default.fileExists(atPath: Paths.sheetsagePython.path)
+    }
+
     func install() {
         guard let payload = Paths.payload else { return }   // repo mode installs by hand (docs/covers.md)
         state = .running; progress = 0; current = 0
         for i in steps.indices { steps[i].done = false }
+        let reuseEnvironment = environmentReady
         let uv = payload.appendingPathComponent("uv").path
         let support = Paths.support
         var env = ["UV_PYTHON_INSTALL_DIR": support.appendingPathComponent("python").path,
@@ -60,7 +72,7 @@ final class SheetSageInstaller: ObservableObject {
                 try await step(1) {
                     // The main env is guaranteed installed by now; its download script takes repo args.
                     try await self.run(Paths.python.path, [Paths.src.appendingPathComponent("tools/download_models.py").path,
-                                                          "m-a-p/SheetSage2", "m-a-p/MERT-v2-FullSong"], env) { [weak self] line in
+                                                          "m-a-p/SheetSage2", "m-a-p/MERT-v2-FullSong", Self.lyricsRepo], env) { [weak self] line in
                         guard let p = downloadProgress(line) else { return }
                         Task { @MainActor in
                             guard let self else { return }
@@ -71,11 +83,11 @@ final class SheetSageInstaller: ObservableObject {
                         }
                     }
                 }
-                try await step(2) { try await self.run(uv, ["venv", Paths.sheetsageEnv.path, "--python", "3.11", "--clear"], env) }
+                try await step(2, skip: reuseEnvironment) { try await self.run(uv, ["venv", Paths.sheetsageEnv.path, "--python", "3.11", "--clear"], env) }
                 // Plain PyPI wheels: on macOS these are the CPU/MPS builds (covers.md's cu126 index is for Linux).
-                try await step(3) { try await self.run(uv, ["pip", "install", "--python", Paths.sheetsagePython.path,
+                try await step(3, skip: reuseEnvironment) { try await self.run(uv, ["pip", "install", "--python", Paths.sheetsagePython.path,
                                                             "torch==2.8.0", "torchaudio==2.8.0"], env) }
-                try await step(4) {
+                try await step(4, skip: reuseEnvironment) {
                     let snapshots = Paths.models.appendingPathComponent("hub/models--m-a-p--SheetSage2/snapshots")
                     guard let snapshot = (try? FileManager.default.contentsOfDirectory(at: snapshots, includingPropertiesForKeys: nil))?.first else {
                         throw NSError(domain: "YuEStudio", code: 1, userInfo: [NSLocalizedDescriptionKey: "SheetSage2 snapshot not found after download"])
@@ -96,9 +108,14 @@ final class SheetSageInstaller: ObservableObject {
         }
     }
 
-    private func step(_ i: Int, _ body: () async throws -> Void) async throws {
-        current = i; detail = ""; append("Step \(i + 1): \(steps[i].title)")
-        try await body()
+    private func step(_ i: Int, skip: Bool = false, _ body: () async throws -> Void) async throws {
+        current = i; detail = ""
+        if skip {
+            append("Step \(i + 1): \(steps[i].title) — already installed")
+        } else {
+            append("Step \(i + 1): \(steps[i].title)")
+            try await body()
+        }
         steps[i].done = true; progress = Double(i + 1) / Double(steps.count)
     }
 

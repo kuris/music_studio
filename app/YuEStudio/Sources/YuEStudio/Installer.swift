@@ -18,12 +18,55 @@ final class Installer: ObservableObject {
 
     func cancel() { running?.terminate(); task?.cancel() }
 
+    private var marker: [String: String] {
+        (try? JSONSerialization.jsonObject(with: Data(contentsOf: Paths.installedMarker)) as? [String: String]) ?? [:]
+    }
+    private var modelsPresent: Bool {
+        FileManager.default.fileExists(atPath: Paths.models.appendingPathComponent("hub/models--m-a-p--YuE2-3B").path)
+    }
+    /// The venv matches what this build is made of, so only the payload source needs refreshing.
+    /// An install predating recipe.txt records no recipe: its environment is taken at face value
+    /// rather than rebuilt, and "Repair" remains the way to force a clean one.
+    private var environmentReady: Bool {
+        guard FileManager.default.fileExists(atPath: Paths.python.path) else { return false }
+        guard let recipe = marker["recipe"] else { return marker["version"] != nil }
+        return recipe == Paths.bundledRecipe
+    }
+
     func check() {
         guard Paths.packaged else { state = .ready; return }
-        let fm = FileManager.default
-        let installed = (try? JSONSerialization.jsonObject(with: Data(contentsOf: Paths.installedMarker)) as? [String: String])?["version"]
-        let modelsPresent = fm.fileExists(atPath: Paths.models.appendingPathComponent("hub/models--m-a-p--YuE2-3B").path)
-        state = (installed == Paths.bundledVersion && fm.fileExists(atPath: Paths.python.path) && modelsPresent) ? .ready : .needed
+        state = (marker["version"] == Paths.bundledVersion && FileManager.default.fileExists(atPath: Paths.python.path) && modelsPresent) ? .ready : .needed
+    }
+
+    /// A source-only update: same environment recipe and the weights are already downloaded, so the
+    /// install is an rsync. Kept separate from install() because it needs no network and no consent.
+    func updateSourceIfPossible() -> Bool {
+        guard Paths.packaged, state == .needed, environmentReady, modelsPresent,
+              let payload = Paths.payload else { return false }
+        state = .running
+        task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                append("Updating to \(Paths.bundledVersion)")
+                try await self.run("/usr/bin/rsync", ["-a", "--delete",
+                                                      payload.appendingPathComponent("yue2-src").path + "/",
+                                                      Paths.src.path + "/"], [:])
+                try self.writeMarker()
+                for i in self.steps.indices { self.steps[i].done = true }
+                self.progress = 1
+                self.state = .ready
+            } catch {
+                append("Update failed: \(error.localizedDescription)")
+                self.state = .needed
+            }
+        }
+        return true
+    }
+
+    private func writeMarker() throws {
+        let data = try JSONSerialization.data(withJSONObject: ["version": Paths.bundledVersion,
+                                                              "recipe": Paths.bundledRecipe])
+        try data.write(to: Paths.installedMarker)
     }
 
     func append(_ message: String) {
@@ -42,6 +85,8 @@ final class Installer: ObservableObject {
     func install() {
         guard let payload = Paths.payload else { state = .ready; return }
         state = .running; progress = 0; current = 0
+        let reuseEnvironment = environmentReady
+        let haveModels = modelsPresent
         let uv = payload.appendingPathComponent("uv").path
         let support = Paths.support
         let env: [String: String] = ["UV_PYTHON_INSTALL_DIR": support.appendingPathComponent("python").path,
@@ -54,10 +99,10 @@ final class Installer: ObservableObject {
                 try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
                 try FileManager.default.createDirectory(at: Paths.output, withIntermediateDirectories: true)
                 try await step(0) { try await self.run("/usr/bin/rsync", ["-a", "--delete", payload.appendingPathComponent("yue2-src").path + "/", Paths.src.path + "/"], env) }
-                try await step(1) { try await self.run(uv, ["python", "install", "3.12"], env) }
-                try await step(2) { try await self.run(uv, ["venv", support.appendingPathComponent("env").path, "--python", "3.12", "--clear"], env) }
-                try await step(3) { try await self.run(uv, ["pip", "install", "--python", Paths.python.path, Paths.src.path + "[apple]"], env) }
-                try await step(4) {
+                try await step(1, skip: reuseEnvironment) { try await self.run(uv, ["python", "install", "3.12"], env) }
+                try await step(2, skip: reuseEnvironment) { try await self.run(uv, ["venv", support.appendingPathComponent("env").path, "--python", "3.12", "--clear"], env) }
+                try await step(3, skip: reuseEnvironment) { try await self.run(uv, ["pip", "install", "--python", Paths.python.path, Paths.src.path + "[apple]"], env) }
+                try await step(4, skip: haveModels) {
                     // The download script reports byte progress from the Hub client's own callbacks.
                     try await self.run(Paths.python.path, [Paths.src.appendingPathComponent("tools/download_models.py").path], env) { [weak self] line in
                         guard let p = downloadProgress(line) else { return }
@@ -72,8 +117,7 @@ final class Installer: ObservableObject {
                 }
                 try await step(5) {
                     try? FileManager.default.removeItem(at: support.appendingPathComponent("uv-cache"))   // ~750 MB, not needed after install
-                    let data = try JSONSerialization.data(withJSONObject: ["version": Paths.bundledVersion])
-                    try data.write(to: Paths.installedMarker)
+                    try self.writeMarker()
                 }
                 state = .ready
             } catch {
@@ -83,9 +127,14 @@ final class Installer: ObservableObject {
         }
     }
 
-    private func step(_ i: Int, _ body: () async throws -> Void) async throws {
-        current = i; detail = ""; append("Step \(i + 1): \(steps[i].title)")
-        try await body()
+    private func step(_ i: Int, skip: Bool = false, _ body: () async throws -> Void) async throws {
+        current = i; detail = ""
+        if skip {
+            append("Step \(i + 1): \(steps[i].title) — already installed")
+        } else {
+            append("Step \(i + 1): \(steps[i].title)")
+            try await body()
+        }
         steps[i].done = true; progress = Double(i + 1) / Double(steps.count)
     }
 
