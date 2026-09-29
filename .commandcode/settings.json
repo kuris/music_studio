@@ -7,7 +7,8 @@
       "Shell(git:*)",
       "Shell(cd /Users/kimjinhyung/Downloads/YuE-Studio-main && git add -A && git commit -m \"feat: Limit YouTube download to 720p for stability YouTube 다운로드 품질 720p로 제한: - -f \"bestvideo[height<=720]+bestaudio/best[height<=720]/bestaudio/best\" - 720p 이하 비디오의 최고 품질 오디오 추출 - 더 빠른 다운로드 속도 - 더 안정적인 변환 (서버 부하 감소) - 파일 크기 감소 (약 30-50% 작음) - 같은 이름 파일 덮어쓰기 (--overwrite) 변경 전: -f bestaudio/best (최고 품질, 느리고 불안정) 변경 후: -f bestvideo[height<=720]+bestaudio/best (720p, 빠르고 안정적) 로그 예시: 12:37:46 yt-dlp 실: yt-dlp --no-playlist -f bestvideo[height<=720]+bestaudio/best[height<=720]/bestaudio/best ...\" 12:37:47 다운로드: 15.23% (720p) 12:37:47 속도: 4.56 MiB/s (720p 다운로드) 12:38:10 ✓ MP3 생성: Song Title.mp3 (5.2 MB) # 1080p: 8.5 MB\" && git push)",
       "Shell(brew:*)",
-      "Shell(cd /Users/kimjinhyung/Downloads/YuE-Studio-main && git add -A && git commit -m \"fix: Add ffmpeg location and PATH for YouTube conversion Two issues fixed: 1. yt-dlp가 ffmpeg/ffprobe를 못 찾아서 --ffmpeg-location /opt/homebrew/bin 추가 2. yt-dlp 프로세스 환경에 /opt/homebrew/bin을 PATH에 추가 변경: - args에 --ffmpeg-location /opt/homebrew/bin 추가 - process.environment에 PATH: /opt/homebrew/bin:$(current PATH) 설정 이제 YouTube 변환이 정상 동작할 것입니다.\" && git push)"
+      "Shell(cd /Users/kimjinhyung/Downloads/YuE-Studio-main && git add -A && git commit -m \"fix: Add ffmpeg location and PATH for YouTube conversion Two issues fixed: 1. yt-dlp가 ffmpeg/ffprobe를 못 찾아서 --ffmpeg-location /opt/homebrew/bin 추가 2. yt-dlp 프로세스 환경에 /opt/homebrew/bin을 PATH에 추가 변경: - args에 --ffmpeg-location /opt/homebrew/bin 추가 - process.environment에 PATH: /opt/homebrew/bin:$(current PATH) 설정 이제 YouTube 변환이 정상 동작할 것입니다.\" && git push)",
+      "Shell(cat:*)"
     ],
     "deny": [],
     "defaultMode": "default"
