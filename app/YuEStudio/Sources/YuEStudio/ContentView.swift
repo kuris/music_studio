@@ -55,6 +55,8 @@ struct ContentView: View {
     @State private var upgradingStyle = false    // 스타일 업그레이드 중 상태
     @State private var showTranscribeSheet = false  // 음원 전사 시트 표시
     @State private var showStyleConversionSheet = false  // 스타일 변환 시트 표시
+    @StateObject private var youtubeConverter = YouTubeConverter()  // YouTube 변환기
+    @State private var youtubeURL = ""  // YouTube 링크
 
     // Style tags for quick selection
     let styleTags = [
@@ -547,7 +549,72 @@ struct ContentView: View {
     // MARK: - Generate Button
     private var generateButton: some View {
         VStack(spacing: 12) {
-            // Cover Song Section
+            // YouTube Conversion Section
+            if !youtubeURL.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "play.rectangle")
+                            .foregroundStyle(Color.whiteAccentPrimary)
+                        Text(youtubeURL.prefix(60))
+                            .font(.caption)
+                            .foregroundStyle(Color.whiteTextSecondary)
+                        Spacer()
+                        Button("변환 중...") {
+                            youtubeConverter.cancel()
+                        }
+                        .font(.caption)
+                        .disabled(!youtubeConverter.isConverting)
+                    }
+
+                    // Progress Bar
+                    if youtubeConverter.isConverting {
+                        ProgressView(value: youtubeConverter.progress)
+                            .progressViewStyle(.linear)
+                            .tint(Color.whiteAccentPrimary)
+                        Text(youtubeConverter.statusMessage)
+                            .font(.caption2)
+                            .foregroundStyle(Color.whiteTextSecondary)
+                    }
+                }
+                .padding(10)
+                .background(Color.whitePanelHover, in: RoundedRectangle(cornerRadius: 6))
+            }
+
+            // YouTube Input
+            HStack {
+                TextField("YouTube 링크 (예: https://www.youtube.com/watch?v=...)", text: $youtubeURL)
+                    .textFieldStyle(.roundedBorder)
+                Button(action: { Task { await convertAndTranscribe() } }) {
+                    HStack {
+                        if youtubeConverter.isConverting {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.down.circle")
+                        }
+                        Text("YouTube에서 변환")
+                    }
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .foregroundStyle(.white)
+                    .background {
+                        if youtubeConverter.isConverting {
+                            Color.gray.opacity(0.3)
+                        } else {
+                            LinearGradient(
+                                colors: [Color.whiteAccentPrimary, Color.whiteAccentSecondary],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .disabled(youtubeURL.isEmpty || youtubeConverter.isConverting)
+            }
+
+            // Cover Song Section (when ABC exists)
             if !abc.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -565,6 +632,7 @@ struct ContentView: View {
                 .background(Color.whitePanelHover, in: RoundedRectangle(cornerRadius: 6))
             }
 
+            // Generate Button
             Button(action: { Task { await generateTapped() } }) {
                 HStack {
                     if naming {
@@ -591,14 +659,14 @@ struct ContentView: View {
                 .foregroundStyle(.white)
                 .font(.headline)
             }
-            .disabled(!backend.connected || naming)
+            .disabled(!backend.connected || naming || youtubeConverter.isConverting)
             .keyboardShortcut(.return, modifiers: .command)
 
-            // Upload Audio Button (Cover)
+            // Manual Audio Upload Button (fallback)
             Button(action: { showTranscribeSheet = true }) {
                 HStack {
                     Image(systemName: "upload.circle")
-                    Text("음원 업로드 (음악 커버)")
+                    Text("음원 직접 업로드")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
@@ -606,7 +674,42 @@ struct ContentView: View {
                 .foregroundStyle(Color.whiteTextPrimary)
                 .font(.subheadline)
             }
-            .help("원곡 오디오를 업로드하면 SheetSage2가 멜로디를 추출하고 ABC 악보로 자동 변환합니다.")
+            .help("WAV, MP3, M4A, FLAC 파일 직접 업로드")
+        }
+    }
+
+    // MARK: - YouTube Convert & Transcribe
+    private func convertAndTranscribe() async {
+        guard !youtubeURL.isEmpty else { return }
+
+        youtubeConverter.statusMessage = "YouTube 링크 분석 중..."
+        youtubeConverter.progress = 0.2
+
+        do {
+            // Get output directory
+            let outputDir = Paths.output.appendingPathComponent("youtube_transcriptions")
+            try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+
+            // Convert YouTube to MP3
+            let mp3URL = try await youtubeConverter.convertYouTubeToMP3(
+                urlString: youtubeURL,
+                outputDir: outputDir
+            )
+
+            guard let mp3URL = mp3URL else {
+                throw ConversionError.noOutputFile
+            }
+
+            // Trigger transcription with the converted MP3
+            backend.transcribe = .idle
+            transcribeSource = PickedAudio(url: mp3URL)
+            showTranscribeSheet = false
+
+            // Clear YouTube URL after successful conversion
+            youtubeURL = ""
+        } catch {
+            lyricsAlert = "YouTube 변환 실패: \(error.localizedDescription)"
+            youtubeConverter.isConverting = false
         }
     }
 
