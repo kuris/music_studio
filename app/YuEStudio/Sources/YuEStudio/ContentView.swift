@@ -814,7 +814,21 @@ struct ContentView: View {
                                     }
                                     .font(.caption2)
                                     .disabled(!backend.connected)
-                                } else if song.quality == "draft" {
+                                }
+                                if song.status != .stalled {
+                                    if backend.videoSong == song.id {
+                                        ProgressView().controlSize(.small)
+                                        Text(backend.videoDetail).font(.caption2)
+                                            .foregroundStyle(Color.whiteTextSecondary).lineLimit(1)
+                                    } else {
+                                        Button("가사 영상") {
+                                            backend.makeLyricsVideo(song, title: title)
+                                        }
+                                        .font(.caption2)
+                                        .disabled(!backend.connected || !backend.videoSong.isEmpty)
+                                    }
+                                }
+                                if song.quality == "draft" && song.status != .stalled {
                                     Button("full 품질로 렌더링 · 32단계") {
                                         backend.render(song, engine: "auto", quality: "full", engines: engines)
                                     }

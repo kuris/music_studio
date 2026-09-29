@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 #if canImport(Metal)
 import Metal
 #endif
@@ -30,6 +31,12 @@ final class Backend: ObservableObject {
     @Published var transcribeABC = ""
     @Published var transcribeLyrics = ""
     @Published var transcribeSRT = ""            // path to lyrics.srt, "" when nothing was recognised
+    /// Lyric-video progress, keyed by the song being worked on ("" when idle).
+    @Published var videoSong = ""
+    @Published var videoDetail = ""
+    @Published var videoError = ""
+    private var videoID = ""
+    private var videoTarget: Song?
     @Published var transcribeWarnings: [String] = []
     @Published var transcribeOutput = ""
     private var transcribeID = ""
@@ -145,6 +152,7 @@ final class Backend: ObservableObject {
                 }
             case "error": append("Worker: \(obj["message"] as? String ?? "error")")
             case "transcribe":
+                if obj["id"] as? String == videoID { handleVideoStage(obj); break }
                 guard obj["id"] as? String == transcribeID else { break }   // stale run
                 switch obj["stage"] as? String ?? "" {
                 case "starting", "progress":
@@ -246,6 +254,56 @@ final class Backend: ObservableObject {
               "offline": Paths.packaged, "lyrics": lyrics, "lyrics_language": lyricsLanguage])
     }
     func cancelTranscription() { send(["cmd": "transcribe_cancel", "id": transcribeID]) }
+
+    /// A lyric video for a finished song: recognise what it actually sings, then draw and encode.
+    /// The words come from the rendered audio rather than the form, so they match what is heard.
+    func makeLyricsVideo(_ song: Song, title: String) {
+        guard videoSong.isEmpty, connected else { return }
+        videoID = UUID().uuidString
+        videoSong = song.id; videoDetail = "가사 인식 준비"; videoError = ""
+        videoTarget = song
+        send(["cmd": "transcribe", "id": videoID, "audio": song.path, "task": "melody-full",
+              "offline": Paths.packaged, "lyrics": true, "lyrics_language": "auto", "lyrics_only": true])
+    }
+
+    private func handleVideoStage(_ obj: [String: Any]) {
+        switch obj["stage"] as? String ?? "" {
+        case "starting", "progress":
+            videoDetail = obj["detail"] as? String ?? videoDetail
+        case "done":
+            guard let song = videoTarget else { videoSong = ""; return }
+            let directory = URL(fileURLWithPath: obj["output"] as? String ?? song.directory.path)
+            let title = song.title.isEmpty ? song.rowName : song.title
+            videoDetail = "슬라이드 생성"
+            // A plain actor-isolated reporter, so the detached work never captures `self` itself.
+            let report: @Sendable (String) -> Void = { [weak self] detail in
+                Task { @MainActor in self?.videoDetail = detail }
+            }
+            Task.detached(priority: .userInitiated) { [weak self] in
+                do {
+                    let cues = try LyricsVideo.cues(inDirectory: directory, duration: song.seconds)
+                    let url = try LyricsVideo.build(audio: URL(fileURLWithPath: song.path), cues: cues,
+                                                    title: title, seed: song.seed, progress: report)
+                    await MainActor.run { [weak self] in
+                        self?.append("가사 영상 완성: \(url.lastPathComponent) (\(cues.count)장)")
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                        self?.videoSong = ""; self?.videoDetail = ""
+                    }
+                } catch {
+                    await MainActor.run { [weak self] in
+                        self?.videoError = error.localizedDescription
+                        self?.append("가사 영상 실패: \(error.localizedDescription)")
+                        self?.videoSong = ""; self?.videoDetail = ""
+                    }
+                }
+            }
+        case "failed":
+            videoError = obj["message"] as? String ?? "가사 인식 실패"
+            append("가사 영상 실패: \(videoError)")
+            videoSong = ""; videoDetail = ""
+        default: break
+        }
+    }
     func stop() { send(["cmd": "stop"]); append("Stop sent") }
     func quit() { send(["cmd": "quit"]); process?.terminate() }
 }
