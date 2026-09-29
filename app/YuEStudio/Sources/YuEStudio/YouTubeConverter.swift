@@ -42,7 +42,14 @@ class YouTubeConverter: ObservableObject {
             throw ConversionError.ytDlpNotFound
         }
 
-        let outputTemplate = outputURL.appendingPathComponent("%(title)s.%(ext)s").path
+        // Every download lands in its own staging folder. The shared folder keeps every song
+        // ever fetched, so picking "the first mp3" out of it handed back whichever name sorted
+        // first — the same old song every time, whatever link was pasted.
+        let staging = outputURL.appendingPathComponent(".download-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: staging) }
+
+        let outputTemplate = staging.appendingPathComponent("%(title)s.%(ext)s").path
         // ytDlpPath is NOT included here - it's set as executableURL
         let args = [
             "--no-playlist",
@@ -63,7 +70,7 @@ class YouTubeConverter: ObservableObject {
         process = Process()
         process?.executableURL = URL(fileURLWithPath: ytDlpPath)
         process?.arguments = args  // ytDlpPath is NOT in args - it's the executable
-        process?.currentDirectoryURL = outputURL
+        process?.currentDirectoryURL = staging
 
         // Set PATH to include Homebrew bin directory
         let homebrewBin = "/opt/homebrew/bin"
@@ -163,13 +170,22 @@ class YouTubeConverter: ObservableObject {
 
         addLog("✓ yt-dlp 완료")
 
-        // Find the output MP3 file
-        let files = try FileManager.default.contentsOfDirectory(at: outputURL, includingPropertiesForKeys: nil)
-        let mp3Files = files.filter { $0.pathExtension == "mp3" }
+        // The MP3 just made — it is alone in the staging folder, named after the YouTube title.
+        let files = try FileManager.default.contentsOfDirectory(
+            at: staging, includingPropertiesForKeys: [.contentModificationDateKey])
+        let mp3Files = files.filter { $0.pathExtension.lowercased() == "mp3" }
+            .sorted { modified($0) > modified($1) }
 
-        guard let mp3File = mp3Files.first else {
+        guard let downloaded = mp3Files.first else {
             addLog("✗ MP3 파일을 찾을 수 없음")
             throw ConversionError.noOutputFile
+        }
+
+        // Keep it beside the earlier downloads, under the title yt-dlp took from YouTube.
+        let mp3File = outputURL.appendingPathComponent(downloaded.lastPathComponent)
+        if mp3File != downloaded {
+            try? FileManager.default.removeItem(at: mp3File)
+            try FileManager.default.moveItem(at: downloaded, to: mp3File)
         }
 
         // Get file size
@@ -185,6 +201,11 @@ class YouTubeConverter: ObservableObject {
         downloadPercent = 0
 
         return mp3File
+    }
+
+    /// When the file was last written, for "which of these is the one just downloaded".
+    private func modified(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
     func cancel() {
