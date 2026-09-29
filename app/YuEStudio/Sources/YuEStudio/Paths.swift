@@ -44,6 +44,9 @@ struct Paths {
             env["HF_HOME"] = models.path
             env["HF_HUB_DISABLE_TELEMETRY"] = "1"
             env["HF_ENDPOINT"] = "https://hf-mirror.com"
+            if let hfToken = ProcessInfo.processInfo.environment["HF_TOKEN"] {
+                env["HF_TOKEN"] = hfToken
+            }
         }
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         return env

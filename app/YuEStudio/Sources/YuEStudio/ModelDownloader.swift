@@ -23,8 +23,10 @@ class ModelDownloader {
             "--endpoint", "https://hf-mirror.com"
         ]
         
-        let env = ProcessInfo.processInfo.environment
-        task.environment = env
+        // Add HF_TOKEN if set in environment
+        if let hfToken = ProcessInfo.processInfo.environment["HF_TOKEN"] {
+            task.environment = ["HF_TOKEN": hfToken]
+        }
         
         let outputPipe = Pipe()
         task.standardOutput = outputPipe

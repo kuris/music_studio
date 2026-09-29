@@ -42,11 +42,15 @@ final class SheetSageInstaller: ObservableObject {
         for i in steps.indices { steps[i].done = false }
         let uv = payload.appendingPathComponent("uv").path
         let support = Paths.support
-        let env: [String: String] = ["UV_PYTHON_INSTALL_DIR": support.appendingPathComponent("python").path,
-                                     "UV_CACHE_DIR": support.appendingPathComponent("uv-cache").path,
-                                     "HF_HOME": Paths.models.path, "HF_HUB_DISABLE_TELEMETRY": "1",
-                                     "HF_ENDPOINT": "https://hf-mirror.com",
-                                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory()]
+        var env = ["UV_PYTHON_INSTALL_DIR": support.appendingPathComponent("python").path,
+                          "UV_CACHE_DIR": support.appendingPathComponent("uv-cache").path,
+                          "HF_HOME": Paths.models.path, "HF_HUB_DISABLE_TELEMETRY": "1",
+                          "HF_ENDPOINT": "https://hf-mirror.com",
+                          "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory()]
+        // Add HF_TOKEN if set in environment
+        if let hfToken = ProcessInfo.processInfo.environment["HF_TOKEN"] {
+            env["HF_TOKEN"] = hfToken
+        }
         task = Task { [weak self] in
             guard let self else { return }
             do {
