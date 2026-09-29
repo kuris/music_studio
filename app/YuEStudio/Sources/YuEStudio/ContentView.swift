@@ -817,16 +817,20 @@ struct ContentView: View {
 
     // MARK: - Log View
     private var logView: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let allLogs = backend.log + youtubeConverter.logs
+        return VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Log").font(.caption).bold(); Spacer()
                 Button("모두 복사") {
-                    let text = backend.log.map { "\($0.time)  \($0.message)" }.joined(separator: "\n")
+                    let text = allLogs.map { "\($0.time)  \($0.message)" }.joined(separator: "\n")
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string)
                 }.font(.caption)
-                Button("지우기") { backend.log.removeAll() }.font(.caption)
+                Button("지우기") {
+                    backend.log.removeAll()
+                    youtubeConverter.logs.removeAll()
+                }.font(.caption)
             }.padding(.horizontal, 8).padding(.vertical, 4)
-            LogTextView(lines: backend.log)
+            LogTextView(lines: allLogs)
         }
     }
 
