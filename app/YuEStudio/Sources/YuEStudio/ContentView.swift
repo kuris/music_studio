@@ -821,7 +821,12 @@ struct ContentView: View {
             HStack {
                 Text("대기열").bold()
                 Spacer()
-                if backend.busy {
+                if !backend.connected {
+                    // The worker dying mid-run left every control disabled with no way back
+                    // but quitting the app. Restarting is not automatic: a worker that died
+                    // on the song it was given would just die again on a loop.
+                    Button("워커 다시 시작") { backend.start() }.font(.caption)
+                } else if backend.busy {
                     Button("중지") { backend.stop() }.font(.caption)
                 }
                 let queued = backend.songs.filter { $0.status == .queued }.count
