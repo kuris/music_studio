@@ -353,10 +353,34 @@ def build():
                                     info="full: 멜로디+화성 · melody: 멜로디만 · off: 직접")
 
                 # ABC Score (Cover)
-                with gr.Accordion("음원 업로드 (음악 커버)", open=False):
-                    audio_upload = gr.Audio(label="원곡 오디오 (WAV/MP3/M4A)", type="filepath")
-                    transcribe_btn = gr.Button("멜로디 전사 (SheetSage2)")
+                with gr.Accordion("🎵 음원 업로드 (음악 커버)", open=False):
+                    audio_upload = gr.Audio(label="원곡 오디오 (WAV/MP3/M4A/FLAC)", type="filepath")
+                    with gr.Row():
+                        transcribe_btn = gr.Button("📝 멜로디 전사 (SheetSage2)", variant="secondary")
+                        clear_abc_btn = gr.Button("🗑 악보 지우기", variant="stop")
                     abc = gr.Textbox(label="ABC 악보 (자동 추출됨)", lines=8, interactive=False)
+
+                    # Wire up buttons
+                    def transcribe_audio(audio_path):
+                        if not audio_path:
+                            return None, "오디오 파일을 선택하세요."
+                        # Trigger transcription via backend
+                        backend.send({"cmd": "transcribe", "id": "cover_transcribe", "audio": audio_path, "task": "melody-full"})
+                        return None, "전사 중..."
+
+                    def clear_abc():
+                        return "", "악보가 지워졌습니다."
+
+                    transcribe_btn.click(
+                        fn=transcribe_audio,
+                        inputs=[audio_upload],
+                        outputs=[abc, gr.Markdown()]
+                    )
+                    clear_abc_btn.click(
+                        fn=clear_abc,
+                        inputs=[],
+                        outputs=[abc, gr.Markdown()]
+                    )
 
                 # Generate Button
                 with gr.Row():

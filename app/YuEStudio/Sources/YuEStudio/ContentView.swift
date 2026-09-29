@@ -53,6 +53,7 @@ struct ContentView: View {
     @AppStorage("deleteOriginalWAV") private var deleteOriginalWAV = false
     @State private var generatingLyrics = false  // Gemini 가사 생성 중 상태
     @State private var upgradingStyle = false    // 스타일 업그레이드 중 상태
+    @State private var showTranscribeSheet = false  // 음원 전사 시트 표시
 
     // Style tags for quick selection
     let styleTags = [
@@ -81,6 +82,20 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in backend.rescan() }
         .sheet(item: $transcribeSource) { picked in
             TranscribeSheetView(source: picked.url, hum: picked.hum, abc: $abc, abcOpen: $abcOpen, cot: $cot, sheetsage: sheetsage).environmentObject(backend)
+        }
+        .sheet(isPresented: $showTranscribeSheet) {
+            // Empty view to trigger the transcribe sheet with audio upload
+            Color.clear.onAppear {
+                let panel = NSOpenPanel()
+                panel.allowedContentTypes = [.audio]
+                panel.allowsMultipleSelection = false
+                panel.message = "멜로디로 전사할 원곡 오디오를 선택하세요 (WAV, MP3, M4A, FLAC)"
+                if panel.runModal() == .OK, let url = panel.url {
+                    backend.transcribe = .idle
+                    transcribeSource = PickedAudio(url: url)
+                    showTranscribeSheet = false
+                }
+            }
         }
         .sheet(isPresented: $humming) {
             HumSheetView { url in
@@ -353,14 +368,20 @@ struct ContentView: View {
 
         let prompt = """
         You are a professional music producer and songwriter.
-        Given the current style description and lyrics, suggest an improved, more detailed style description.
-        Focus on: genre specificity, instrumentation, vocal style, mood, tempo, and production quality.
-        Return ONLY the improved style description, no explanation.
+        Analyze the lyrics' mood, theme, imagery, and emotional tone.
+        Then suggest a style description that perfectly matches the lyrics.
+
+        Focus on:
+        - Genre that fits the lyrics' mood and theme
+        - Instruments that complement the lyrics' imagery
+        - Vocal style matching the emotional tone
+        - Tempo that matches the lyrics' pacing and rhythm
+        - Production quality that enhances the lyrics' atmosphere
 
         Current Style: \(style.isEmpty ? "generic" : style)
-        Lyrics Preview: \(lyrics.prefix(500))
+        Lyrics: \(lyrics)
 
-        Return the improved style as a comma-separated list of descriptors.
+        Return ONLY the improved style as a comma-separated list of descriptors. No explanation.
         """
 
         let payload: [String: Any] = [
@@ -479,34 +500,68 @@ struct ContentView: View {
 
     // MARK: - Generate Button
     private var generateButton: some View {
-        Button(action: { Task { await generateTapped() } }) {
-            HStack {
-                if naming {
-                    ProgressView()
-                    Text("제목 선택 중...")
-                } else if backend.busy {
-                    Image(systemName: "plus")
-                    Text("대기열에 추가")
-                } else {
-                    Image(systemName: "play.fill")
-                    Text("곡 만들기")
+        VStack(spacing: 12) {
+            // Cover Song Section
+            if !abc.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "music.note")
+                            .foregroundStyle(Color.whiteAccentPrimary)
+                        Text("음악 커버: \(abc.prefix(50))...")
+                            .font(.caption)
+                            .foregroundStyle(Color.whiteTextSecondary)
+                        Spacer()
+                        Button("수정") { showTranscribeSheet = true }
+                            .font(.caption)
+                    }
                 }
+                .padding(10)
+                .background(Color.whitePanelHover, in: RoundedRectangle(cornerRadius: 6))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(
-                LinearGradient(
-                    colors: [Color.whiteAccentPrimary, Color.whiteAccentSecondary],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                ),
-                in: RoundedRectangle(cornerRadius: 8)
-            )
-            .foregroundStyle(.white)
-            .font(.headline)
+
+            Button(action: { Task { await generateTapped() } }) {
+                HStack {
+                    if naming {
+                        ProgressView()
+                        Text("제목 선택 중...")
+                    } else if backend.busy {
+                        Image(systemName: "plus")
+                        Text("대기열에 추가")
+                    } else {
+                        Image(systemName: "play.fill")
+                        Text(abc.isEmpty ? "곡 만들기" : "커버곡 만들기")
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(
+                    LinearGradient(
+                        colors: [Color.whiteAccentPrimary, Color.whiteAccentSecondary],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
+                .foregroundStyle(.white)
+                .font(.headline)
+            }
+            .disabled(!backend.connected || naming)
+            .keyboardShortcut(.return, modifiers: .command)
+
+            // Upload Audio Button (Cover)
+            Button(action: { showTranscribeSheet = true }) {
+                HStack {
+                    Image(systemName: "upload.circle")
+                    Text("음원 업로드 (음악 커버)")
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.whiteBorder, in: RoundedRectangle(cornerRadius: 8))
+                .foregroundStyle(Color.whiteTextPrimary)
+                .font(.subheadline)
+            }
+            .help("원곡 오디오를 업로드하면 SheetSage2가 멜로디를 추출하고 ABC 악보로 자동 변환합니다.")
         }
-        .disabled(!backend.connected || naming)
-        .keyboardShortcut(.return, modifiers: .command)
     }
 
     // MARK: - Results (Right Sidebar)
