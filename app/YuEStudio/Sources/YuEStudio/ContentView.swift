@@ -481,6 +481,13 @@ struct ContentView: View {
                         .foregroundStyle(Color.whiteTextPrimary)
                     Spacer()
                     HStack {
+                        // How many candidates one press generates. It belongs next to the seed,
+                        // beside the button that uses it — it was only reachable inside the
+                        // style conversion sheet, which is not where a plain generate happens.
+                        Text("동시").font(.caption).foregroundStyle(Color.whiteTextSecondary)
+                        Picker("", selection: $batch) {
+                            ForEach(1...4, id: \.self) { Text("\($0)").tag($0) }
+                        }.pickerStyle(.segmented).labelsHidden().frame(width: 130)
                         TextField("시드", value: $seed, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)
