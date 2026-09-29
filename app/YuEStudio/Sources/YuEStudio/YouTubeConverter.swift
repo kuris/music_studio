@@ -60,8 +60,8 @@ class YouTubeConverter: ObservableObject {
         addLog("  yt-dlp 실행: \(args.joined(separator: " "))")
 
         process = Process()
-        process?.executableURL = URL(fileURLWithPath: "/bin/bash")  // bash is needed for bracket expressions
-        process?.arguments = ["-c", args.joined(separator: " ")]
+        process?.executableURL = URL(fileURLWithPath: ytDlpPath)
+        process?.arguments = args  // Pass as separate arguments, not joined string
         process?.currentDirectoryURL = outputURL
 
         let outputPipe = Pipe()
