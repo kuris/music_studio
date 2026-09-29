@@ -54,6 +54,7 @@ struct ContentView: View {
     @State private var generatingLyrics = false  // Gemini 가사 생성 중 상태
     @State private var upgradingStyle = false    // 스타일 업그레이드 중 상태
     @State private var showTranscribeSheet = false  // 음원 전사 시트 표시
+    @State private var showScoreEditSheet = false   // 폼에 들어있는 ABC 악보 편집
     @State private var showStyleConversionSheet = false  // 스타일 변환 시트 표시
     @StateObject private var youtubeConverter = YouTubeConverter()  // YouTube 변환기
     @State private var youtubeURL = ""  // YouTube 링크
@@ -97,6 +98,9 @@ struct ContentView: View {
                     showTranscribeSheet = false
                 }
             }
+        }
+        .sheet(isPresented: $showScoreEditSheet) {
+            ScoreEditSheet(abc: $abc, style: $style)
         }
         .sheet(isPresented: $showStyleConversionSheet) {
             StyleConversionSheet()
@@ -609,7 +613,9 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(Color.whiteTextSecondary)
                         Spacer()
-                        Button("수정") { showTranscribeSheet = true }
+                        Button("악보 편집") { showScoreEditSheet = true }
+                            .font(.caption)
+                        Button("다시 전사") { showTranscribeSheet = true }
                             .font(.caption)
                     }
                 }

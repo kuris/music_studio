@@ -101,7 +101,7 @@ struct StyleConversionSheet: View {
                 // A conversion replaces the style outright. Appending would stack two
                 // genres and two tempos, which read as contradictory instructions.
                 if let prompt = StylePresets.prompt(selectedStyle) {
-                    style = Self.withVocal(Self.atMelodyTempo(prompt, abc), vocal)
+                    style = Self.withVocal(Score.tempo(abc).map { Score.styleAtTempo(prompt, $0) } ?? prompt, vocal)
                 }
                 title = Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle)
                 // Generate cover song
@@ -165,7 +165,7 @@ struct StyleConversionSheet: View {
                 Label("전사된 멜로디가 없습니다 — 먼저 원곡을 전사하세요", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
             } else {
-                Label("멜로디 유지" + (Self.melodyTempo(abc).map { " · \($0) BPM" } ?? ""),
+                Label("멜로디 유지" + (Score.tempo(abc).map { " · \($0) BPM" } ?? ""),
                       systemImage: "checkmark.circle")
             }
             Label(lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -184,24 +184,6 @@ struct StyleConversionSheet: View {
         }
         .font(.caption).foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The melody's own tempo, read from the ABC's Q: header (e.g. "Q:1/4=68").
-    static func melodyTempo(_ abc: String) -> Int? {
-        guard let line = abc.split(separator: "\n").first(where: { $0.hasPrefix("Q:") }),
-              let equals = line.lastIndex(of: "="),
-              let bpm = Int(line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)),
-              bpm > 20, bpm < 300 else { return nil }
-        return bpm
-    }
-
-    /// A preset's BPM restated as the transcribed melody's. YuE2 takes tempo from the ABC,
-    /// and the docs require the style to describe it consistently — a preset's stock BPM
-    /// would otherwise contradict the score by a factor of two.
-    static func atMelodyTempo(_ prompt: String, _ abc: String) -> String {
-        guard let bpm = melodyTempo(abc) else { return prompt }
-        return prompt.replacingOccurrences(of: "\\d+ BPM", with: "\(bpm) BPM",
-                                           options: .regularExpression)
     }
 
     /// "제목_스타일_커버", built from whatever name the song already carries.
