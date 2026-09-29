@@ -43,8 +43,8 @@ class YouTubeConverter: ObservableObject {
         }
 
         let outputTemplate = outputURL.appendingPathComponent("%(title)s.%(ext)s").path
+        // ytDlpPath is NOT included here - it's set as executableURL
         let args = [
-            ytDlpPath,
             "--no-playlist",
             // 720p 이하 비디오의 최고 품질 오디오 추출 (더 안정적, 빠른 다운로드)
             "-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/bestaudio/best",
@@ -56,11 +56,11 @@ class YouTubeConverter: ObservableObject {
             urlString
         ]
 
-        addLog("  yt-dlp 실행: \(args.joined(separator: " "))")
+        addLog("  yt-dlp 실행: \(ytDlpPath) \(args.joined(separator: " "))")
 
         process = Process()
         process?.executableURL = URL(fileURLWithPath: ytDlpPath)
-        process?.arguments = args  // Pass as separate arguments, not joined string
+        process?.arguments = args  // ytDlpPath is NOT in args - it's the executable
         process?.currentDirectoryURL = outputURL
 
         let outputPipe = Pipe()
