@@ -54,6 +54,7 @@ struct ContentView: View {
     @State private var generatingLyrics = false  // Gemini 가사 생성 중 상태
     @State private var upgradingStyle = false    // 스타일 업그레이드 중 상태
     @State private var showTranscribeSheet = false  // 음원 전사 시트 표시
+    @State private var showStyleConversionSheet = false  // 스타일 변환 시트 표시
 
     // Style tags for quick selection
     let styleTags = [
@@ -96,6 +97,10 @@ struct ContentView: View {
                     showTranscribeSheet = false
                 }
             }
+        }
+        .sheet(isPresented: $showStyleConversionSheet) {
+            StyleConversionSheet()
+                .environmentObject(backend)
         }
         .sheet(isPresented: $humming) {
             HumSheetView { url in
@@ -264,9 +269,38 @@ struct ContentView: View {
     // MARK: - Style Tags
     private var styleTagsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("스타일")
-                .font(.subheadline)
-                .foregroundStyle(Color.whiteTextPrimary)
+            HStack {
+                Text("스타일")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.whiteTextPrimary)
+                Spacer()
+                // Style Conversion Button (only show when ABC exists)
+                if !abc.isEmpty {
+                    Button(action: {
+                        showStyleConversionSheet = true
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.right.circle")
+                            Text("스타일 변환")
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.whiteAccentPrimary, Color.whiteAccentSecondary],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            in: Capsule()
+                        )
+                        .foregroundStyle(.white)
+                    }
+                    .disabled(backend.busy)
+                }
+            }
+
+            // Style Tags (chips)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(styleTags, id: \.self) { tag in
@@ -275,7 +309,7 @@ struct ContentView: View {
                                 Text(tag)
                                     .font(.caption)
                                     .foregroundStyle(Color.whiteTextPrimary)
-                                if generatingLyrics {
+                                if generatingLyrics || upgradingStyle {
                                     ProgressView()
                                         .controlSize(.small)
                                         .scaleEffect(0.8)
@@ -307,16 +341,28 @@ struct ContentView: View {
         ]
 
         if let prompt = tagPrompts[tag] {
-            // Update style first
+            // Update style
             if style.isEmpty || style.contains("Korean") {
                 style = prompt
             } else {
                 style = style + ", " + prompt
             }
 
-            // Auto generate lyrics with Gemini
-            await autoGenerateLyrics()
+            // If no ABC score, generate lyrics with Gemini
+            if abc.isEmpty {
+                await autoGenerateLyrics()
+            }
+            // If ABC exists, just update style (cover song mode)
         }
+    }
+
+    // MARK: - Style Conversion (Cover Song)
+    private func convertToStyle(_ tag: String) async {
+        // First apply the style tag (updates style only if ABC exists)
+        await applyStyleTag(tag)
+
+        // Then generate the cover song immediately
+        await generateTapped()
     }
 
     // MARK: - Auto Lyrics Generation
