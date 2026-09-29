@@ -52,6 +52,7 @@ struct ContentView: View {
     @AppStorage("autoSaveMP3") private var autoSaveMP3 = true
     @AppStorage("deleteOriginalWAV") private var deleteOriginalWAV = false
     @State private var generatingLyrics = false  // Gemini 가사 생성 중 상태
+    @State private var upgradingStyle = false    // 스타일 업그레이드 중 상태
 
     // Style tags for quick selection
     let styleTags = [
@@ -338,6 +339,80 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Style Upgrade
+    private func upgradeStyle() async {
+        upgradingStyle = true
+        defer { upgradingStyle = false }
+
+        // Use Gemini to suggest an improved style based on current lyrics and style
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(TitleSuggester.geminiModel):generateContent?key=\(TitleSuggester.geminiApiKey)"
+        guard let url = URL(string: urlString) else {
+            lyricsAlert = "Gemini API URL이 올바르지 않습니다."
+            return
+        }
+
+        let prompt = """
+        You are a professional music producer and songwriter.
+        Given the current style description and lyrics, suggest an improved, more detailed style description.
+        Focus on: genre specificity, instrumentation, vocal style, mood, tempo, and production quality.
+        Return ONLY the improved style description, no explanation.
+
+        Current Style: \(style.isEmpty ? "generic" : style)
+        Lyrics Preview: \(lyrics.prefix(500))
+
+        Return the improved style as a comma-separated list of descriptors.
+        """
+
+        let payload: [String: Any] = [
+            "contents": [
+                [
+                    "parts": [
+                        ["text": prompt]
+                    ]
+                ]
+            ],
+            "generationConfig": [
+                "temperature": 0.7,
+                "maxOutputTokens": 200
+            ]
+        ]
+
+        do {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                let errBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+                lyricsAlert = "스타일 업그레이드 실패: \(http.statusCode) - \(errBody)"
+                return
+            }
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let candidates = json["candidates"] as? [[String: Any]],
+                  let first = candidates.first,
+                  let content = first["content"] as? [String: Any],
+                  let parts = content["parts"] as? [[String: Any]],
+                  let text = parts.first?["text"] as? String else {
+                lyricsAlert = "스타일 업그레이드 실패: 응답 파싱 실패"
+                return
+            }
+
+            let improvedStyle = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !improvedStyle.isEmpty {
+                if self.style.isEmpty {
+                    self.style = improvedStyle
+                } else {
+                    self.style = self.style + ", " + improvedStyle
+                }
+            }
+        } catch {
+            lyricsAlert = "스타일 업그레이드 실패: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Style Prompt
     private var stylePromptSection: some View {
         ScrollView {
@@ -364,14 +439,42 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 6)
                             .stroke(Color.whiteBorder, lineWidth: 1)
                     )
-                Text("장르, 악기, 보컬 , 분위기, BPM을 영어로 적으면 가장 잘 나옵니다.")
+                Text("장르, 악기, 보컬 톤, 분위기, BPM을 영어로 적으면 가장 잘 나옵니다.")
                     .font(.caption)
                     .foregroundStyle(Color.whiteTextSecondary)
+
+                // Style Upgrade Button
+                Button(action: { Task { await upgradeStyle() } }) {
+                    HStack {
+                        if upgradingStyle {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("업그레이드 중...")
+                        } else {
+                            Image(systemName: "arrow.up.right")
+                            Text("스타일 업그레이드 (Gemini)")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.whiteAccentPrimary.opacity(0.8), Color.whiteAccentSecondary.opacity(0.8)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 6)
+                    )
+                    .foregroundStyle(.white)
+                    .font(.subheadline)
+                }
+                .disabled(!TitleSuggester.modelAvailable || upgradingStyle)
+                .help(TitleSuggester.geminiApiKey.isEmpty ? "Gemini API 키를 설정하세요" : "현재 스타일과 가사를 기반으로 AI가 더 나은 스타일을 추천합니다")
             }
             .padding(12)
             .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
         }
-        .frame(maxHeight: 200)
+        .frame(maxHeight: 220)
     }
 
     // MARK: - Generate Button
