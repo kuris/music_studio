@@ -19,8 +19,7 @@ class ModelDownloader {
         task.arguments = [
             "download",
             "m-a-p/MERT-v2-FullSong",
-            "--local-dir", modelPath,
-            "--endpoint", "https://hf-mirror.com"
+            "--local-dir", modelPath
         ]
         
         // Read HF_TOKEN from .env file

@@ -35,6 +35,14 @@ struct Paths {
     static var sheetsageEnv: URL { support.appendingPathComponent("sheetsage-env") }
     static var sheetsagePython: URL { packaged ? sheetsageEnv.appendingPathComponent("bin/python") : repoRoot.appendingPathComponent(".venv-sheetsage2/bin/python") }
     static var sheetsageMarker: URL { support.appendingPathComponent("sheetsage-installed.json") }
+    /// Every repo the worker loads at runtime; installers fetch these before the worker is used.
+    static let cachedRepos = ["m-a-p--YuE2-3B", "m-a-p--YuE2-Vae", "m-a-p--SheetSage2", "m-a-p--MERT-v2-FullSong"]
+    static var modelsCached: Bool {
+        let hub = models.appendingPathComponent("hub")
+        return cachedRepos.allSatisfy {
+            FileManager.default.fileExists(atPath: hub.appendingPathComponent("models--\($0)/refs/main").path)
+        }
+    }
     static var workerEnvironment: [String: String] {
         var env = ProcessInfo.processInfo.environment
         env["PYTHONUNBUFFERED"] = "1"; env["TQDM_DISABLE"] = "1"
@@ -43,7 +51,10 @@ struct Paths {
         if packaged {
             env["HF_HOME"] = models.path
             env["HF_HUB_DISABLE_TELEMETRY"] = "1"
-            env["HF_ENDPOINT"] = "https://hf-mirror.com"
+            // Models are downloaded once by the installers. Once they are all cached the worker
+            // never needs the Hub again, so pin it offline: a blocked or flaky huggingface.co then
+            // cannot turn a fully cached model into a "couldn't connect" failure mid-transcription.
+            if modelsCached { env["HF_HUB_OFFLINE"] = "1" }
             // Read HF_TOKEN from .env file
             if let envPath = Bundle.main.resourceURL?.appendingPathComponent(".env").path,
                let envContent = try? String(contentsOfFile: envPath),

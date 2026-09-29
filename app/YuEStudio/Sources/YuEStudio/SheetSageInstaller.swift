@@ -45,7 +45,6 @@ final class SheetSageInstaller: ObservableObject {
         var env = ["UV_PYTHON_INSTALL_DIR": support.appendingPathComponent("python").path,
                           "UV_CACHE_DIR": support.appendingPathComponent("uv-cache").path,
                           "HF_HOME": Paths.models.path, "HF_HUB_DISABLE_TELEMETRY": "1",
-                          "HF_ENDPOINT": "https://hf-mirror.com",
                           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory()]
         // Read HF_TOKEN from .env file
         if let envPath = Bundle.main.resourceURL?.appendingPathComponent(".env").path,
