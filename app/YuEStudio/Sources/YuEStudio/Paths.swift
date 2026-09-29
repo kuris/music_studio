@@ -20,7 +20,10 @@ struct Paths {
         return packaged ? support.appendingPathComponent("src/tools/yue2_worker.py") : repoRoot.appendingPathComponent("tools/yue2_worker.py")
     }
     static var src: URL { support.appendingPathComponent("src") }
-    static var models: URL { ProcessInfo.processInfo.environment["YUE_STUDIO_HF_HOME"].map { URL(fileURLWithPath: $0) } ?? support.appendingPathComponent("models") }
+    static var models: URL {
+        let base = ProcessInfo.processInfo.environment["YUE_STUDIO_HF_HOME"].map { URL(fileURLWithPath: $0) } ?? support.appendingPathComponent("models")
+        return base
+    }
     static var aneCache: URL { support.appendingPathComponent("ane-cache") }
     static var output: URL {
         packaged ? FileManager.default.urls(for: .musicDirectory, in: .userDomainMask)[0].appendingPathComponent("YuE Studio")
@@ -37,7 +40,11 @@ struct Paths {
         env["PYTHONUNBUFFERED"] = "1"; env["TQDM_DISABLE"] = "1"
         env["YUE2_OUTPUT_DIR"] = output.path; env["YUE2_ANE_CACHE"] = aneCache.path
         env["YUE2_SHEETSAGE_PYTHON"] = sheetsagePython.path   // worker cwd differs between modes
-        if packaged { env["HF_HOME"] = models.path; env["HF_HUB_DISABLE_TELEMETRY"] = "1" }
+        if packaged {
+            env["HF_HOME"] = models.path
+            env["HF_HUB_DISABLE_TELEMETRY"] = "1"
+            env["HF_ENDPOINT"] = "https://hf-mirror.com"
+        }
         env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         return env
     }
