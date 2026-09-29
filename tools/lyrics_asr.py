@@ -39,16 +39,6 @@ class LyricsError(Exception):
     pass
 
 
-def is_sparse(start, end, text):
-    """A few words stretched over a long stretch of audio: Whisper filling an instrumental.
-
-    Sung lines run well above half a character a second, so this only catches the
-    hallucinations Whisper produces where there is no voice at all.
-    """
-    seconds = end - start
-    return seconds >= 12.0 and len("".join(text.split())) / seconds < 0.5
-
-
 def is_degenerate(text):
     """True for Whisper's repetition loops ("!!!!!!…", "다다다다…") over instrumental parts."""
     stripped = "".join(text.split())
@@ -210,9 +200,11 @@ def transcribe(audio, output, *, model_id=DEFAULT_MODEL, language=None,
         lines = []
         for segment in segments:
             text = processor.decode(segment["tokens"], skip_special_tokens=True).strip()
-            start, end = float(segment["start"]), float(segment["end"])
-            if text and not is_degenerate(text) and not is_sparse(start, end, text):
-                lines.append((start, end, text))
+            # Only outright gibberish is dropped. Whisper times an opening line against the
+            # whole first window, so judging a line by its words-per-second threw away a real
+            # one — and a lost lyric is invisible where a stray line is one keystroke to delete.
+            if text and not is_degenerate(text):
+                lines.append((float(segment["start"]), float(segment["end"]), text))
         # Long-form decoding can hand segments back out of order; the layout and the SRT
         # both read them as a timeline, so put them back in one.
         lines.sort(key=lambda line: line[0])

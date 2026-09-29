@@ -28,18 +28,6 @@ struct StyleConversionSheet: View {
     static let vocalTags = ["auto": "", "female": "female vocal", "male": "male vocal",
                             "duet": "male and female duet vocals"]
 
-    let styleTags = [
-        "시티팝": "Korean city pop, warm analog synth, smooth bass, 95 BPM",
-        "트로트": "Korean trot, accordion, brass, upbeat rhythm, 120 BPM",
-        "발라드": "Korean ballad, piano, strings, emotional, 70 BPM",
-        "K-pop 스": "K-pop dance, electronic, energetic, 128 BPM",
-        "R&B": "R&B, soulful vocals, smooth production, 90 BPM",
-        "어쿠스틱 포크": "Acoustic folk, guitar, warm, 85 BPM",
-        "신스웨이브": "Synthwave, retro 80s, neon, 110 BPM",
-        "록 밴드": "Rock band, electric guitar, drums, 130 BPM",
-        "재즈 보사노바": "Jazz bossa nova, piano, light percussion, 100 BPM",
-        "동요": "Children's song, simple melody, playful, 110 BPM"
-    ]
 
     var body: some View {
         VStack(spacing: 20) {
@@ -74,14 +62,15 @@ struct StyleConversionSheet: View {
             // Style Selection Grid
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], spacing: 12) {
-                    ForEach(Array(styleTags.keys), id: \.self) { tag in
+                    ForEach(StylePresets.all) { preset in
+                        let tag = preset.name
                         Button(action: {
                             selectedStyle = tag
                         }) {
                             VStack(spacing: 4) {
                                 Text(tag)
                                     .font(.headline)
-                                Text(styleTags[tag] ?? "")
+                                Text(preset.prompt)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
@@ -111,7 +100,7 @@ struct StyleConversionSheet: View {
                 // Apply selected style
                 // A conversion replaces the style outright. Appending would stack two
                 // genres and two tempos, which read as contradictory instructions.
-                if let prompt = styleTags[selectedStyle] {
+                if let prompt = StylePresets.prompt(selectedStyle) {
                     style = Self.withVocal(Self.atMelodyTempo(prompt, abc), vocal)
                 }
                 title = Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle)

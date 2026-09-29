@@ -59,9 +59,7 @@ struct ContentView: View {
     @State private var youtubeURL = ""  // YouTube 링크
 
     // Style tags for quick selection
-    let styleTags = [
-        "시티팝", "트로트", "발라드", "K-pop 댄스", "R&B", "어쿠스틱 포크", "신스웨이브", "록 밴드", "재즈 보사노바", "동요"
-    ]
+    let styleTags = StylePresets.names
 
     var body: some View {
         HSplitView {
@@ -329,20 +327,7 @@ struct ContentView: View {
     }
 
     private func applyStyleTag(_ tag: String) async {
-        let tagPrompts: [String: String] = [
-            "시티팝": "Korean city pop, warm analog synth, smooth bass, 95 BPM",
-            "트로트": "Korean trot, accordion, brass, upbeat rhythm, 120 BPM",
-            "발라드": "Korean ballad, piano, strings, emotional, 70 BPM",
-            "K-pop 스": "K-pop dance, electronic, energetic, 128 BPM",
-            "R&B": "R&B, soulful vocals, smooth production, 90 BPM",
-            "어쿠스틱 포크": "Acoustic folk, guitar, warm, 85 BPM",
-            "신스웨이브": "Synthwave, retro 80s, neon, 110 BPM",
-            "록 밴드": "Rock band, electric guitar, drums, 130 BPM",
-            "재즈 보사노바": "Jazz bossa nova, piano, light percussion, 100 BPM",
-            "동요": "Children's song, simple melody, playful, 110 BPM"
-        ]
-
-        if let prompt = tagPrompts[tag] {
+        if let prompt = StylePresets.prompt(tag) {
             // Update style
             if style.isEmpty || style.contains("Korean") {
                 style = prompt
@@ -750,6 +735,26 @@ struct ContentView: View {
                     .padding(.vertical, 40)
             } else {
                 List {
+                    // In-flight songs stay visible with their stage track. Filtering them out
+                    // made a row vanish the moment it was queued, which reads as losing the song.
+                    ForEach(backend.songs.filter { $0.inFlight }) { song in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                VStack(alignment: .leading) {
+                                    Text(song.rowName).font(.caption).bold().foregroundStyle(Color.whiteTextPrimary)
+                                    Text(song.detail.isEmpty ? "대기 중" : song.detail)
+                                        .font(.caption2).foregroundStyle(Color.whiteTextSecondary)
+                                        .lineLimit(1).truncationMode(.middle)
+                                }
+                                Spacer()
+                                Button("취소") { backend.cancel(song) }.font(.caption2)
+                            }
+                            StageTrack(progress: song.trackProgress)
+                        }
+                        .padding(8)
+                        .background(Color.whiteAccentPrimary.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+                    }
                     ForEach(backend.songs.filter { !$0.inFlight }) { song in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
