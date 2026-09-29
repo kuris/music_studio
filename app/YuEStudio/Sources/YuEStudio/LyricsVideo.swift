@@ -75,11 +75,22 @@ enum LyricsVideo {
                 NSColor(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1), saturation: 0.70, brightness: 0.06, alpha: 1))
     }
 
+    /// AppKit drawing and text layout belong to the main thread; NSImage.lockFocus off it
+    /// silently produced no bitmap at all.
+    @MainActor
     static func slide(text: String, title: String, seed: Int, index: Int, count: Int) throws -> Data {
         let rect = CGRect(origin: .zero, size: size)
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: rep) else {
+            throw Failure.render("비트맵을 만들 수 없습니다")
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        defer { NSGraphicsContext.restoreGraphicsState() }
 
         let (top, bottom) = palette(seed: seed, index: index, count: count)
         NSGradient(starting: top, ending: bottom)?.draw(in: rect, angle: -70)
@@ -125,14 +136,15 @@ enum LyricsVideo {
             }
         }
 
-        guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
-              let png = bitmap.representation(using: .png, properties: [:]) else {
+        context.flushGraphics()
+        guard let png = rep.representation(using: .png, properties: [:]) else {
             throw Failure.render("이미지를 PNG로 변환하지 못했습니다")
         }
         return png
     }
 
     /// Centre a block of text vertically in `rect`.
+    @MainActor
     private static func draw(_ text: String, attributes: [NSAttributedString.Key: Any], in rect: CGRect) {
         let string = text as NSString
         let bounds = CGSize(width: rect.width, height: .greatestFiniteMagnitude)
@@ -143,48 +155,58 @@ enum LyricsVideo {
 
     // MARK: - Assembly
 
-    /// Renders every slide and cross-fades them against the song. Returns the finished file.
-    @discardableResult
-    static func build(audio: URL, cues: [Cue], title: String, seed: Int,
-                      progress: (@Sendable (String) -> Void)? = nil) throws -> URL {
-        guard let ffmpeg = ffmpeg else { throw Failure.noFFmpeg }
-        guard !cues.isEmpty else { throw Failure.noCues }
-        let directory = audio.deletingLastPathComponent()
+    /// Draws every slide next to the song. Returns each file with how long it is held.
+    @MainActor
+    static func renderSlides(cues: [Cue], title: String, seed: Int, into directory: URL,
+                             progress: (@Sendable (String) -> Void)? = nil) throws -> [(url: URL, hold: Double)] {
         let slides = directory.appendingPathComponent("slides", isDirectory: true)
         try? FileManager.default.removeItem(at: slides)
         try FileManager.default.createDirectory(at: slides, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: slides) }
-
-        var arguments: [String] = ["-hide_banner", "-loglevel", "error", "-y"]
+        var made: [(url: URL, hold: Double)] = []
         for (i, cue) in cues.enumerated() {
             progress?("슬라이드 \(i + 1)/\(cues.count)")
             let png = try slide(text: cue.text, title: title, seed: seed, index: i, count: cues.count)
             let file = slides.appendingPathComponent(String(format: "slide%03d.png", i))
             try png.write(to: file)
-            // Each slide is held for its cue plus the fade it hands to the next one.
+            // Held for its own cue plus the fade it hands to the next one.
             let hold = max(minimumSlide, cue.end - cue.start) + (i + 1 < cues.count ? fade : 0)
-            arguments += ["-loop", "1", "-t", String(format: "%.3f", hold), "-i", file.path]
+            made.append((file, hold))
+        }
+        return made
+    }
+
+    /// Cross-fades the drawn slides against the song. Returns the finished file.
+    @discardableResult
+    static func encode(slides: [(url: URL, hold: Double)], audio: URL,
+                       progress: (@Sendable (String) -> Void)? = nil) throws -> URL {
+        guard let ffmpeg = ffmpeg else { throw Failure.noFFmpeg }
+        guard !slides.isEmpty else { throw Failure.noCues }
+        let directory = audio.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory.appendingPathComponent("slides")) }
+
+        var arguments: [String] = ["-hide_banner", "-loglevel", "error", "-y"]
+        for slide in slides {
+            arguments += ["-loop", "1", "-t", String(format: "%.3f", slide.hold), "-i", slide.url.path]
         }
         arguments += ["-i", audio.path]
 
-        // Chain one xfade per gap; each offset is where the outgoing slide starts dissolving.
+        // One xfade per gap; each offset is where the outgoing slide starts dissolving.
         var filter = "", label = "0", offset = 0.0
-        for i in 1..<max(cues.count, 1) {
-            offset += max(minimumSlide, cues[i - 1].end - cues[i - 1].start)
-            let out = i == cues.count - 1 ? "v" : "x\(i)"
+        for i in 1..<max(slides.count, 1) {
+            offset += slides[i - 1].hold - fade
+            let out = i == slides.count - 1 ? "v" : "x\(i)"
             filter += "[\(label)][\(i)]xfade=transition=fade:duration=\(String(format: "%.2f", fade))"
-                + ":offset=\(String(format: "%.3f", max(0, offset - fade)))[\(out)];"
+                + ":offset=\(String(format: "%.3f", max(0, offset)))[\(out)];"
             label = out
         }
-        let video = cues.count == 1 ? "0:v" : "[v]"
         if !filter.isEmpty { arguments += ["-filter_complex", String(filter.dropLast())] }
-        arguments += ["-map", video, "-map", "\(cues.count):a",
+        arguments += ["-map", slides.count == 1 ? "0:v" : "[v]", "-map", "\(slides.count):a",
                       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
                       "-c:a", "aac", "-b:a", "192k", "-shortest"]
         let output = directory.appendingPathComponent("lyrics-video.mp4")
         arguments.append(output.path)
 
-        progress?("영상 인코딩 중 (\(cues.count)장)")
+        progress?("영상 인코딩 중 (\(slides.count)장)")
         let task = Process()
         task.executableURL = URL(fileURLWithPath: ffmpeg)
         task.arguments = arguments

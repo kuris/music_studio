@@ -279,23 +279,24 @@ final class Backend: ObservableObject {
             let report: @Sendable (String) -> Void = { [weak self] detail in
                 Task { @MainActor in self?.videoDetail = detail }
             }
-            Task.detached(priority: .userInitiated) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
                 do {
+                    // Drawing stays on the main actor; only the encode is detached.
                     let cues = try LyricsVideo.cues(inDirectory: directory, duration: song.seconds)
-                    let url = try LyricsVideo.build(audio: URL(fileURLWithPath: song.path), cues: cues,
-                                                    title: title, seed: song.seed, progress: report)
-                    await MainActor.run { [weak self] in
-                        self?.append("가사 영상 완성: \(url.lastPathComponent) (\(cues.count)장)")
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                        self?.videoSong = ""; self?.videoDetail = ""
-                    }
+                    let slides = try LyricsVideo.renderSlides(cues: cues, title: title, seed: song.seed,
+                                                              into: directory, progress: report)
+                    let audio = URL(fileURLWithPath: song.path)
+                    let url = try await Task.detached(priority: .userInitiated) {
+                        try LyricsVideo.encode(slides: slides, audio: audio, progress: report)
+                    }.value
+                    self.append("가사 영상 완성: \(url.lastPathComponent) (\(cues.count)장)")
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
                 } catch {
-                    await MainActor.run { [weak self] in
-                        self?.videoError = error.localizedDescription
-                        self?.append("가사 영상 실패: \(error.localizedDescription)")
-                        self?.videoSong = ""; self?.videoDetail = ""
-                    }
+                    self.videoError = error.localizedDescription
+                    self.append("가사 영상 실패: \(error.localizedDescription)")
                 }
+                self.videoSong = ""; self.videoDetail = ""
             }
         case "failed":
             videoError = obj["message"] as? String ?? "가사 인식 실패"
