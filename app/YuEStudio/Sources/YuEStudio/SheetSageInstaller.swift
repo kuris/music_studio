@@ -47,9 +47,12 @@ final class SheetSageInstaller: ObservableObject {
                           "HF_HOME": Paths.models.path, "HF_HUB_DISABLE_TELEMETRY": "1",
                           "HF_ENDPOINT": "https://hf-mirror.com",
                           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory()]
-        // Add HF_TOKEN if set in environment
-        if let hfToken = ProcessInfo.processInfo.environment["HF_TOKEN"] {
-            env["HF_TOKEN"] = hfToken
+        // Read HF_TOKEN from .env file
+        if let envPath = Bundle.main.resourceURL?.appendingPathComponent(".env").path,
+           let envContent = try? String(contentsOfFile: envPath),
+           let hfLine = envContent.components(separatedBy: "\n").first(where: { $0.hasPrefix("HF_TOKEN=") }) {
+            let token = hfLine.replacingOccurrences(of: "HF_TOKEN=", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            env["HF_TOKEN"] = token
         }
         task = Task { [weak self] in
             guard let self else { return }
