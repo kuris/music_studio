@@ -52,7 +52,6 @@ class YouTubeConverter: ObservableObject {
             "--audio-format", "mp3",
             "--audio-quality", "0",
             "--output", outputTemplate,
-            "--overwrite",  // 같은 이름 파일 덮어쓰기
             "--no-warnings",
             urlString
         ]
