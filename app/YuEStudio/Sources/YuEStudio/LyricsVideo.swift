@@ -10,7 +10,9 @@ import AppKit
 enum LyricsVideo {
     struct Cue { let start: Double; let end: Double; let text: String }
 
-    static let size = CGSize(width: 1280, height: 720)
+    static let size = CGSize(width: 720, height: 1280)      // 9:16, for phones
+    /// The visualiser band, measured from the top, and the room left above it for words.
+    static let bandTop: CGFloat = 660, bandHeight: CGFloat = 300
     static let fade = 0.6                       // seconds of cross-fade between slides
     static let minimumSlide = 1.6               // a cue shorter than this still gets room to read
 
@@ -18,6 +20,40 @@ enum LyricsVideo {
     static var ffmpeg: String? {
         ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// What the audio looks like. Each is an FFmpeg graph ending in a 720x1280 frame whose
+    /// background is black, so screen-blending it over a slide shows only the visualiser.
+    enum Style: String, CaseIterable, Identifiable {
+        case bars, wave, spectrum, circle
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .bars: return "막대"; case .wave: return "파형"
+            case .spectrum: return "스펙트럼"; case .circle: return "원형"
+            }
+        }
+        /// Built against the song's own audio; `gain` lifts a quiet mix into the band.
+        func filter(colour: String, second: String) -> String {
+            let band = Int(bandHeight), top = Int(bandTop)
+            switch self {
+            case .bars:
+                // Rendered tiny and scaled with nearest-neighbour: that is what makes the
+                // bars chunky instead of a smooth hill.
+                return "showfreqs=size=45x150:mode=bar:ascale=cbrt:fscale=log:win_size=1024"
+                    + ":averaging=1:colors=\(colour),scale=684:\(band):flags=neighbor"
+                    + ",pad=720:1280:18:\(top):black"
+            case .wave:
+                return "showwaves=size=720x\(band):mode=cline:colors=\(colour)|\(second):draw=full"
+                    + ",pad=720:1280:0:\(top):black"
+            case .spectrum:
+                return "showcqt=size=720x\(band):sono_h=0:axis_h=0:bar_h=\(band):count=6"
+                    + ":cscheme=0.6|0.4|1|1|0.6|0.9,pad=720:1280:0:\(top):black"
+            case .circle:
+                return "avectorscope=size=560x560:mode=polar:rate=30:rc=60:gc=150:bc=255:zoom=1.6"
+                    + ",pad=720:1280:80:\(top - 130):black"
+            }
+        }
     }
 
     enum Failure: LocalizedError {
@@ -77,8 +113,19 @@ enum LyricsVideo {
 
     /// AppKit drawing and text layout belong to the main thread; NSImage.lockFocus off it
     /// silently produced no bitmap at all.
+    /// Two bright accents for the visualiser, matched to the slide gradient's hue.
+    static func accents(seed: Int) -> (String, String) {
+        let hue = Double(abs(seed) % 360) / 360.0
+        func hex(_ h: Double) -> String {
+            let c = NSColor(hue: h.truncatingRemainder(dividingBy: 1), saturation: 0.55, brightness: 1, alpha: 1)
+            return String(format: "#%02x%02x%02x", Int(c.redComponent * 255), Int(c.greenComponent * 255), Int(c.blueComponent * 255))
+        }
+        return (hex(hue + 0.5), hex(hue + 0.62))
+    }
+
     @MainActor
-    static func slide(text: String, title: String, seed: Int, index: Int, count: Int) throws -> Data {
+    static func slide(text: String, next: String, title: String, seed: Int,
+                      index: Int, count: Int) throws -> Data {
         let rect = CGRect(origin: .zero, size: size)
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
                                          pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
@@ -95,45 +142,58 @@ enum LyricsVideo {
         let (top, bottom) = palette(seed: seed, index: index, count: count)
         NSGradient(starting: top, ending: bottom)?.draw(in: rect, angle: -70)
 
-        let body = NSMutableParagraphStyle()
-        body.alignment = .center
-        body.lineSpacing = 12
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
-        shadow.shadowBlurRadius = 14
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.6)
+        shadow.shadowBlurRadius = 16
         shadow.shadowOffset = NSSize(width: 0, height: -3)
+        let centred = NSMutableParagraphStyle()
+        centred.alignment = .center
+        centred.lineSpacing = 8
 
-        if text.isEmpty {                               // the title card
+        // Words sit above the visualiser band, which is measured from the top of the frame.
+        let words = CGRect(x: 56, y: size.height - bandTop + 40,
+                           width: size.width - 112, height: bandTop - 160)
+
+        if text.isEmpty {                               // the opening title card
             let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 62, weight: .bold),
-                .foregroundColor: NSColor.white.withAlphaComponent(0.92),
-                .paragraphStyle: body, .shadow: shadow,
+                .font: NSFont.systemFont(ofSize: 52, weight: .bold),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.94),
+                .paragraphStyle: centred, .shadow: shadow,
             ]
-            draw(title, attributes: attributes, in: rect.insetBy(dx: 110, dy: 0))
+            draw(title, attributes: attributes, in: words, verticalAnchor: 0.5)
         } else {
-            // Long lines need a smaller face to stay on two lines at this width.
-            let points: CGFloat = text.count > 26 ? 44 : (text.count > 16 ? 54 : 64)
-            let attributes: [NSAttributedString.Key: Any] = [
+            let points: CGFloat = text.count > 22 ? 40 : (text.count > 14 ? 46 : 54)
+            let now: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: points, weight: .semibold),
                 .foregroundColor: NSColor.white,
-                .paragraphStyle: body, .shadow: shadow,
+                .paragraphStyle: centred, .shadow: shadow,
             ]
-            draw(text, attributes: attributes, in: rect.insetBy(dx: 110, dy: 0))
-
-            if !title.isEmpty {
-                let caption = NSMutableParagraphStyle()
-                caption.alignment = .center
-                let small: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 22, weight: .regular),
-                    .foregroundColor: NSColor.white.withAlphaComponent(0.45),
-                    .paragraphStyle: caption,
+            let height = draw(text, attributes: now, in: words, verticalAnchor: 0.62)
+            // The line that comes next, dimmed: two lines read as a lyric sheet rather than
+            // a single card, and it tells the singer what is coming.
+            if !next.isEmpty {
+                let ahead: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: points * 0.72, weight: .regular),
+                    .foregroundColor: NSColor.white.withAlphaComponent(0.42),
+                    .paragraphStyle: centred, .shadow: shadow,
                 ]
-                let line = title as NSString
-                let height = line.boundingRect(with: CGSize(width: rect.width - 160, height: .greatestFiniteMagnitude),
-                                               options: [.usesLineFragmentOrigin], attributes: small).height
-                line.draw(with: CGRect(x: 80, y: 46, width: rect.width - 160, height: height),
-                          options: [.usesLineFragmentOrigin], attributes: small)
+                let below = CGRect(x: words.minX, y: words.minY,
+                                   width: words.width,
+                                   height: max(0, words.height * 0.62 - height / 2 - 18))
+                draw(next, attributes: ahead, in: below, verticalAnchor: 1.0)
             }
+        }
+
+        if !title.isEmpty && !text.isEmpty {
+            let caption = NSMutableParagraphStyle()
+            caption.alignment = .center
+            let small: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 20, weight: .regular),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.4),
+                .paragraphStyle: caption,
+            ]
+            (title as NSString).draw(with: CGRect(x: 40, y: size.height - 76, width: size.width - 80, height: 30),
+                                     options: [.usesLineFragmentOrigin], attributes: small)
         }
 
         context.flushGraphics()
@@ -144,13 +204,19 @@ enum LyricsVideo {
     }
 
     /// Centre a block of text vertically in `rect`.
+    /// Draws `text` inside `rect`, positioned by `verticalAnchor` (0 bottom … 1 top).
+    /// Returns the height it took, so the next block can be placed under it.
     @MainActor
-    private static func draw(_ text: String, attributes: [NSAttributedString.Key: Any], in rect: CGRect) {
+    @discardableResult
+    private static func draw(_ text: String, attributes: [NSAttributedString.Key: Any],
+                             in rect: CGRect, verticalAnchor: CGFloat) -> CGFloat {
         let string = text as NSString
         let bounds = CGSize(width: rect.width, height: .greatestFiniteMagnitude)
         let height = string.boundingRect(with: bounds, options: [.usesLineFragmentOrigin], attributes: attributes).height
-        let box = CGRect(x: rect.minX, y: (size.height - height) / 2, width: rect.width, height: height)
-        string.draw(with: box, options: [.usesLineFragmentOrigin], attributes: attributes)
+        let y = rect.minY + (rect.height - height) * verticalAnchor
+        string.draw(with: CGRect(x: rect.minX, y: y, width: rect.width, height: height),
+                    options: [.usesLineFragmentOrigin], attributes: attributes)
+        return height
     }
 
     // MARK: - Assembly
@@ -165,7 +231,8 @@ enum LyricsVideo {
         var made: [(url: URL, hold: Double)] = []
         for (i, cue) in cues.enumerated() {
             progress?("슬라이드 \(i + 1)/\(cues.count)")
-            let png = try slide(text: cue.text, title: title, seed: seed, index: i, count: cues.count)
+            let png = try slide(text: cue.text, next: i + 1 < cues.count ? cues[i + 1].text : "",
+                                title: title, seed: seed, index: i, count: cues.count)
             let file = slides.appendingPathComponent(String(format: "slide%03d.png", i))
             try png.write(to: file)
             // Held for its own cue plus the fade it hands to the next one.
@@ -177,30 +244,37 @@ enum LyricsVideo {
 
     /// Cross-fades the drawn slides against the song. Returns the finished file.
     @discardableResult
-    static func encode(slides: [(url: URL, hold: Double)], audio: URL,
+    static func encode(slides: [(url: URL, hold: Double)], audio: URL, style: Style, seed: Int,
                        progress: (@Sendable (String) -> Void)? = nil) throws -> URL {
         guard let ffmpeg = ffmpeg else { throw Failure.noFFmpeg }
         guard !slides.isEmpty else { throw Failure.noCues }
         let directory = audio.deletingLastPathComponent()
         defer { try? FileManager.default.removeItem(at: directory.appendingPathComponent("slides")) }
 
-        var arguments: [String] = ["-hide_banner", "-loglevel", "error", "-y"]
+        // The song comes first so the visualiser can split off it; the slides follow.
+        var arguments: [String] = ["-hide_banner", "-loglevel", "error", "-y", "-i", audio.path]
         for slide in slides {
             arguments += ["-loop", "1", "-t", String(format: "%.3f", slide.hold), "-i", slide.url.path]
         }
-        arguments += ["-i", audio.path]
 
         // One xfade per gap; each offset is where the outgoing slide starts dissolving.
-        var filter = "", label = "0", offset = 0.0
+        // Slide i is input i+1, the song being input 0.
+        var filter = "[0:a]asplit=2[aout][avis];", label = "1", offset = 0.0
         for i in 1..<max(slides.count, 1) {
             offset += slides[i - 1].hold - fade
-            let out = i == slides.count - 1 ? "v" : "x\(i)"
-            filter += "[\(label)][\(i)]xfade=transition=fade:duration=\(String(format: "%.2f", fade))"
+            let out = "x\(i)"
+            filter += "[\(label)][\(i + 1)]xfade=transition=fade:duration=\(String(format: "%.2f", fade))"
                 + ":offset=\(String(format: "%.3f", max(0, offset)))[\(out)];"
             label = out
         }
-        if !filter.isEmpty { arguments += ["-filter_complex", String(filter.dropLast())] }
-        arguments += ["-map", slides.count == 1 ? "0:v" : "[v]", "-map", "\(slides.count):a",
+        let colours = accents(seed: seed)
+        // Both sides are forced to one pixel format first: blending a filter's native format
+        // against the PNGs silently wrecked the colours.
+        filter += "[avis]\(style.filter(colour: colours.0, second: colours.1)),format=gbrp[eq];"
+        filter += "[\(label)]format=gbrp[base];[base][eq]blend=all_mode=screen[v]"
+
+        arguments += ["-filter_complex", filter,
+                      "-map", "[v]", "-map", "[aout]",
                       "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
                       "-c:a", "aac", "-b:a", "192k", "-shortest"]
         let output = directory.appendingPathComponent("lyrics-video.mp4")

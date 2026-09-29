@@ -37,6 +37,7 @@ final class Backend: ObservableObject {
     @Published var videoError = ""
     private var videoID = ""
     private var videoTarget: Song?
+    private var videoStyle: LyricsVideo.Style = .bars
     @Published var transcribeWarnings: [String] = []
     @Published var transcribeOutput = ""
     private var transcribeID = ""
@@ -257,11 +258,11 @@ final class Backend: ObservableObject {
 
     /// A lyric video for a finished song: recognise what it actually sings, then draw and encode.
     /// The words come from the rendered audio rather than the form, so they match what is heard.
-    func makeLyricsVideo(_ song: Song, title: String) {
+    func makeLyricsVideo(_ song: Song, title: String, style: LyricsVideo.Style = .bars) {
         guard videoSong.isEmpty, connected else { return }
         videoID = UUID().uuidString
         videoSong = song.id; videoDetail = "가사 인식 준비"; videoError = ""
-        videoTarget = song
+        videoTarget = song; videoStyle = style
         send(["cmd": "transcribe", "id": videoID, "audio": song.path, "task": "melody-full",
               "offline": Paths.packaged, "lyrics": true, "lyrics_language": "auto", "lyrics_only": true])
     }
@@ -287,8 +288,9 @@ final class Backend: ObservableObject {
                     let slides = try LyricsVideo.renderSlides(cues: cues, title: title, seed: song.seed,
                                                               into: directory, progress: report)
                     let audio = URL(fileURLWithPath: song.path)
+                    let style = self.videoStyle
                     let url = try await Task.detached(priority: .userInitiated) {
-                        try LyricsVideo.encode(slides: slides, audio: audio, progress: report)
+                        try LyricsVideo.encode(slides: slides, audio: audio, style: style, seed: song.seed, progress: report)
                     }.value
                     self.append("가사 영상 완성: \(url.lastPathComponent) (\(cues.count)장)")
                     NSWorkspace.shared.activateFileViewerSelecting([url])

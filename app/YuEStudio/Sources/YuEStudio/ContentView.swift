@@ -273,6 +273,7 @@ struct ContentView: View {
     // How closely the vocal must follow the given score. The semantic stage samples at 1.0 by
     // default, which is loose enough for a cover to wander onto a different tune.
     @AppStorage("melodyAdherence") private var adherence = 1.0
+    @AppStorage("videoStyle") private var videoStyle = LyricsVideo.Style.bars.rawValue
 
     // MARK: - Style Tags
     private var styleTagsSection: some View {
@@ -821,10 +822,16 @@ struct ContentView: View {
                                         Text(backend.videoDetail).font(.caption2)
                                             .foregroundStyle(Color.whiteTextSecondary).lineLimit(1)
                                     } else {
-                                        Button("가사 영상") {
-                                            backend.makeLyricsVideo(song, title: title)
+                                        Menu("가사 영상") {
+                                            ForEach(LyricsVideo.Style.allCases) { style in
+                                                Button(style.label) {
+                                                    videoStyle = style.rawValue
+                                                    backend.makeLyricsVideo(song, title: title, style: style)
+                                                }
+                                            }
                                         }
-                                        .font(.caption2)
+                                        .menuStyle(.borderlessButton)
+                                        .font(.caption2).fixedSize()
                                         .disabled(!backend.connected || !backend.videoSong.isEmpty)
                                     }
                                 }
