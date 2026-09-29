@@ -20,7 +20,7 @@ class ModelDownloader {
             "download",
             "m-a-p/MERT-v2-FullSong",
             "--local-dir", modelPath,
-            "--endpoint", "https://hf-mirror.com"   // mirror for Korean access
+            "--endpoint", "https://hf-mirror.com"
         ]
         
         let env = ProcessInfo.processInfo.environment
