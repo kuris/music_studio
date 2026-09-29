@@ -24,6 +24,8 @@ enum StylePresets {
         Preset(name: "메탈", prompt: "Heavy metal, distorted guitars, double kick drums, aggressive, 150 BPM"),
         Preset(name: "재즈 보사노바", prompt: "Jazz bossa nova, piano, light percussion, 100 BPM"),
         Preset(name: "동요", prompt: "Children's song, simple melody, playful, 110 BPM"),
+        Preset(name: "스페이스 오페라", prompt: "Space opera, sweeping orchestra, wordless choir, analog synth drones, vast cinematic stereo, 90 BPM"),
+        Preset(name: "에픽 심포니", prompt: "Epic symphony, full orchestra, brass fanfare, thundering timpani, soaring strings, 100 BPM"),
     ]
 
     static let names: [String] = all.map(\.name)
