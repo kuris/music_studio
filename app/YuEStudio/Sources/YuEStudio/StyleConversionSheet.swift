@@ -14,6 +14,7 @@ struct StyleConversionSheet: View {
     @AppStorage("seed") private var seed = 831001
     @AppStorage("maxSeconds") private var maxSeconds = 120.0
     @AppStorage("instrumental") private var instrumental = false
+    @AppStorage("melodyAdherence") private var adherence = 1.0
     // A cover follows the main form's quality setting rather than forcing its own, so the
     // choice stays in one place; the sheet shows which one it will use.
     @AppStorage("qualityMode") private var qualityMode = "draft-gpu"
@@ -114,7 +115,8 @@ struct StyleConversionSheet: View {
                         abcOpen: abcOpen,
                         quality: quality,
                         engines: engines,
-                        instrumental: instrumental
+                        instrumental: instrumental,
+                        semanticTemperature: abc.isEmpty ? nil : adherence
                     )
                     converting = false
                     dismiss()

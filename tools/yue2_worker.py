@@ -15,6 +15,7 @@ the whole policy; in short:
   Rendering       always admitted: its tiles interleave with token steps.
 
 Requests: {"cmd": "generate", "style", "lyrics", "cot": "full|melody|off", "seed", "random_seed", "batch",
+           "semantic_temperature": float|null (lower holds the vocal closer to the given ABC),
            "max_tokens", "abc": str|null, "abc_open": bool (the abc is a hummed opening the planner continues),
            "quality": "draft|full", "engines": "gpu|gpu+ane", "draft_steps",
            "instrumental": bool, "title": str}     (engines: whether the Neural Engine may synthesize; "gpu" keeps
@@ -22,7 +23,7 @@ Requests: {"cmd": "generate", "style", "lyrics", "cot": "full|melody|off", "seed
           {"cmd": "render", "path": song directory or its audio.flac, "quality": "full|draft", "engines": "gpu|gpu+ane"}
           {"cmd": "cancel", "path"}   {"cmd": "stop"}   {"cmd": "ping"}   {"cmd": "quit"}
           {"cmd": "transcribe", "id", "audio", "task": "melody-full|melody-vocal", "offline": bool,
-           "lyrics": bool, "lyrics_language": "auto|ko|en|..."}
+           "lyrics": bool, "lyrics_language": "auto|ko|en|...", "lyrics_only": bool}
           {"cmd": "transcribe_cancel", "id"}
 Events:   {"event": "ready"}   {"event": "log", "message"}   {"event": "pong"}   {"event": "error", "message"}
           {"event": "started", "job", "output", "songs": [{"index", "seed", "path", "priority"}]}
@@ -276,7 +277,8 @@ class Song:
     """One song on its way through the stages: a process with a priority (its arrival number)."""
     _sequence = itertools.count(1)
 
-    def __init__(self, run, index, seed, request, directory, quality, steps, limit, instrumental=False, allow_ane=True, title=""):
+    def __init__(self, run, index, seed, request, directory, quality, steps, limit, instrumental=False, allow_ane=True, title="",
+                 semantic_temperature=None):
         self.priority = next(Song._sequence)
         self.title = title
         self.run, self.index, self.seed, self.request = run, index, seed, request
@@ -284,6 +286,9 @@ class Song:
         self.path = str(self.directory / "audio.flac")
         self.quality, self.steps, self.limit, self.instrumental = quality, steps, limit, instrumental
         self.allow_ane = allow_ane                # the user's engine choice: the Neural Engine may take this song
+        # How freely the semantic stage may wander from the conditioning. The default 1.0 lets a
+        # score-conditioned cover drift onto a different tune; a lower value holds it to the ABC.
+        self.semantic_temperature = semantic_temperature
         self.mode = request.cot
         self.needs_plan = request.cot != "off" and (request.abc is None or request.abc_open)
         self.cancel = threading.Event()
@@ -575,6 +580,10 @@ def run_batch(batch):
             s.set_state(TOKENIZING, "generating song tokens")
         limits = [s.limit for s in songs]
         sampling = dataclasses.replace(pipe.generation_config.semantic, max_tokens=max(limits))
+        # Songs submitted together share one request, so they share its temperature.
+        if songs[0].semantic_temperature is not None:
+            sampling = dataclasses.replace(sampling, temperature=float(songs[0].semantic_temperature))
+            log(f"Semantic temperature {sampling.temperature:.2f} (default {pipe.generation_config.semantic.temperature:.2f})")
 
         released = set()
         def release_song(i, tokens, t, truncated):
@@ -937,6 +946,9 @@ def submit_generate(req):
         style, lyrics = instrumental_tags(style), structure_only(lyrics)
         if mode == "off":
             mode = "full"                      # the vocal voice can only be silenced in a planned score
+    temperature = req.get("semantic_temperature")
+    if temperature is not None:
+        temperature = min(5.0, max(0.0, float(temperature)))
     quality = "draft" if req.get("quality", "draft") == "draft" else "full"
     allow_ane = req.get("engines", "gpu+ane" if quality == "full" else "gpu") != "gpu"
     base = int(time.time()) % 10_000_000 if req.get("random_seed") else int(req.get("seed", 831001))
@@ -961,7 +973,8 @@ def submit_generate(req):
     for i, seed in enumerate(seeds):
         request = SongRequest(style=style, lyrics=lyrics, cot=mode, seed=seed, abc=abc, abc_open=abc_open,
                               id=f"song{i + 1}", **({"cfg_scale": 1.0} if mode == "off" else {}))
-        songs.append(Song(stamp, i + 1, seed, request, out_root / f"song{i + 1}", quality, steps, limit, instrumental, allow_ane, title))
+        songs.append(Song(stamp, i + 1, seed, request, out_root / f"song{i + 1}", quality, steps, limit, instrumental, allow_ane, title,
+                          semantic_temperature=temperature))
     emit(event="started", job=stamp, output=str(out_root), title=title,
          songs=[{"index": s.index, "seed": s.seed, "path": s.path, "priority": s.priority} for s in songs])
     log(f"Queued {stamp}: {n} song(s), {quality} quality ({steps} steps, {'GPU + Neural Engine' if allow_ane else 'GPU only'}), "
@@ -1044,6 +1057,8 @@ def run_transcribe(req):
             cmd.append("--offline")
         cmd.append("--lyrics" if req.get("lyrics", True) else "--no-lyrics")
         cmd += ["--lyrics-language", str(req.get("lyrics_language", "auto"))]
+        if req.get("lyrics_only"):
+            cmd.append("--lyrics-only")
         log(f"Transcribing '{audio.name}' with SheetSage2")
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)   # stderr inherited
         TRANSCRIBE_PROC[0] = proc

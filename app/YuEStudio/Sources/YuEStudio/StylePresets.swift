@@ -44,17 +44,32 @@ enum Vocal {
 
     static func tag(_ key: String) -> String { choices.first { $0.key == key }?.tag ?? "" }
 
-    /// Style text carrying exactly the chosen vocal tag — replacing any previous one.
+    /// Style text naming exactly the chosen singer.
+    ///
+    /// A hand-written phrase like "soaring male vocals" is rewritten in place rather than left
+    /// to contradict an appended tag — switching to 여성 gives "soaring female vocals" and keeps
+    /// the adjective. Only when no phrase names a singer is the plain tag added.
     static func apply(_ style: String, _ key: String) -> String {
         var parts = style.components(separatedBy: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { part in
-                !part.isEmpty && !choices.contains {
-                    !$0.tag.isEmpty && $0.tag.caseInsensitiveCompare(part) == .orderedSame
-                }
-            }
-        let chosen = tag(key)
-        if !chosen.isEmpty { parts.append(chosen) }
+            .filter { !$0.isEmpty }
+        parts.removeAll { part in
+            choices.contains { !$0.tag.isEmpty && $0.tag.caseInsensitiveCompare(part) == .orderedSame }
+        }
+        guard let gender = ["female": "female", "male": "male", "duet": "male and female"][key] else {
+            return parts.joined(separator: ", ")          // 자동: name no singer at all
+        }
+        // "male and female" first so it is not half-matched by "male".
+        let namesSinger = "\\b(male and female|female|male)\\b"
+        var named = false
+        for i in parts.indices where parts[i].lowercased().contains("vocal") {
+            guard parts[i].range(of: namesSinger, options: [.regularExpression, .caseInsensitive]) != nil
+            else { continue }
+            named = true        // already names a singer, even when it is the one chosen
+            parts[i] = parts[i].replacingOccurrences(of: namesSinger, with: gender,
+                                                     options: [.regularExpression, .caseInsensitive])
+        }
+        if !named { parts.append(tag(key)) }
         return parts.joined(separator: ", ")
     }
 }

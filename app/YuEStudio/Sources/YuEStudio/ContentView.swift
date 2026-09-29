@@ -270,6 +270,9 @@ struct ContentView: View {
 
     @State private var showTagGuide = false
     @AppStorage("styleVocal") private var vocal = "auto"
+    // How closely the vocal must follow the given score. The semantic stage samples at 1.0 by
+    // default, which is loose enough for a cover to wander onto a different tune.
+    @AppStorage("melodyAdherence") private var adherence = 1.0
 
     // MARK: - Style Tags
     private var styleTagsSection: some View {
@@ -628,6 +631,11 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(Color.whiteTextSecondary)
                         Spacer()
+                        Picker("", selection: $adherence) {
+                            Text("자유").tag(1.0); Text("보통").tag(0.85); Text("엄격").tag(0.7)
+                        }
+                        .pickerStyle(.segmented).labelsHidden().frame(width: 170)
+                        .help("낮을수록 보컬이 이 악보의 선율을 더 그대로 따릅니다")
                         Button("악보 편집") { showScoreEditSheet = true }
                             .font(.caption)
                         Button("다시 전사") { showTranscribeSheet = true }
@@ -936,7 +944,8 @@ struct ContentView: View {
             title = suggested; titleAuto = suggested
         }
         backend.generate(title: title.trimmingCharacters(in: .whitespaces), style: style, lyrics: lyrics, cot: cot, seed: seed, randomSeed: randomSeed, batch: batch,
-                         maxTokens: Int(maxSeconds * 25), engine: "auto", abc: abc, abcOpen: abcOpen, quality: quality, engines: engines, instrumental: instrumental)
+                         maxTokens: Int(maxSeconds * 25), engine: "auto", abc: abc, abcOpen: abcOpen, quality: quality, engines: engines, instrumental: instrumental,
+                         semanticTemperature: abc.isEmpty ? nil : adherence)
     }
 
     private var qualityCaption: String {

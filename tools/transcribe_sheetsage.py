@@ -9,7 +9,7 @@ JSON object per line on stdout so the app worker can forward progress verbatim:
   {"stage": "progress", "fraction": 0..1 | absent, "detail": ...}
   {"stage": "done", "abc": <score text>, "lyrics": <tagged text>, "srt": <path|"">,
    "warnings": [...], "output": <dir>}
-  {"stage": "failed", "code": "afconvert|abc_error|crash", "message": ...}
+  {"stage": "failed", "code": "afconvert|abc_error|lyrics|crash", "message": ...}
 
 Audio is decoded with macOS's own afconvert and handed to the model as a raw
 waveform, so no FFmpeg install is needed.  Standalone: no imports outside the
@@ -89,6 +89,24 @@ def run(args):
         return 2
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
+
+    # Checking what a finished song actually sings needs the words only. Skipping the melody
+    # pass turns a four-minute job into a half-minute one.
+    if args.lyrics_only:
+        say(stage="starting", detail="가사 인식 준비")
+        try:
+            recognised = lyrics_asr.transcribe(
+                args.audio, output, model_id=args.lyrics_model,
+                language=None if args.lyrics_language == "auto" else args.lyrics_language,
+                device=args.lyrics_device, offline=args.offline,
+                progress=lambda detail: say(stage="progress", detail=detail))
+        except Exception as exc:
+            fail("lyrics", f"{type(exc).__name__}: {exc}", output)
+            return 5
+        write_json(output / "lyrics.json", recognised)
+        say(stage="done", abc="", lyrics=recognised["text"], srt=recognised["srt"],
+            warnings=[], output=str(output))
+        return 0
 
     say(stage="starting", detail="decoding audio")
     try:
@@ -226,6 +244,8 @@ def main():
     parser.add_argument("--lyrics-language", default="auto",
                         help="ISO code such as ko or en; 'auto' lets Whisper detect it")
     parser.add_argument("--lyrics-device", default="mps", choices=("mps", "cpu"))
+    parser.add_argument("--lyrics-only", action="store_true",
+                        help="recognise lyrics and skip the melody pass entirely")
     args = parser.parse_args()
     try:
         return run(args)
