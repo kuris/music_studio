@@ -24,6 +24,7 @@ struct StyleConversionSheet: View {
     private var engines: String { qualityMode.hasSuffix("-ane") ? "gpu+ane" : "gpu" }
     @State private var selectedStyle = ""
     @State private var converting = false
+    @State private var writing = false        // Gemini is writing the style out
 
 
 
@@ -92,42 +93,11 @@ struct StyleConversionSheet: View {
             }
 
             // Convert Button
-            Button(action: {
-                converting = true
-                // Apply selected style
-                // A conversion replaces the style outright. Appending would stack two
-                // genres and two tempos, which read as contradictory instructions.
-                if let prompt = StylePresets.prompt(selectedStyle) {
-                    style = Vocal.apply(Score.tempo(abc).map { Score.styleAtTempo(prompt, $0) } ?? prompt, vocal)
-                }
-                title = Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle)
-                // Generate cover song
-                Task {
-                    backend.generate(
-                        title: title.trimmingCharacters(in: .whitespaces),
-                        style: style,
-                        lyrics: lyrics,
-                        cot: "melody",
-                        seed: seed,
-                        randomSeed: randomSeed,
-                        batch: batch,
-                        maxTokens: Int(maxSeconds * 25),
-                        engine: "auto",
-                        abc: abc,
-                        abcOpen: abcOpen,
-                        quality: quality,
-                        engines: engines,
-                        instrumental: instrumental,
-                        semanticTemperature: abc.isEmpty ? nil : adherence
-                    )
-                    converting = false
-                    dismiss()
-                }
-            }) {
+            Button(action: { Task { await convert() } }) {
                 HStack {
                     if converting {
                         ProgressView()
-                        Text("생성 중...")
+                        Text(writing ? "스타일 작성 중 (Gemini)..." : "생성 중...")
                     } else {
                         Image(systemName: "arrow.right.circle.fill")
                         Text("변환하기")
@@ -185,6 +155,50 @@ struct StyleConversionSheet: View {
     }
 
     /// "제목_스타일_커버", built from whatever name the song already carries.
+    /// Write the style for the chosen genre, then start the cover.
+    ///
+    /// A conversion replaces the style outright. Appending would stack two genres and two
+    /// tempos, which read as contradictory instructions.
+    private func convert() async {
+        converting = true
+        if let preset = StylePresets.prompt(selectedStyle) {
+            let bpm = Score.tempo(abc)
+            let plain = StyleWriter.atTempo(preset, bpm)
+            // The preset is one line and names a genre; Gemini writes it out for this song,
+            // against what the transcription says the song actually is. Anything short of an
+            // answer we can use — no key, no network, a refusal — leaves the preset standing.
+            writing = true
+            let (written, note) = await StyleWriter.enrich(preset: preset, tempo: bpm,
+                                                           analysis: Score.analysis(abc),
+                                                           title: title.isEmpty ? titleAuto : title,
+                                                           lyrics: lyrics, instrumental: instrumental)
+            writing = false
+            backend.append("스타일 작성: \(note)")     // why the style reads as it does
+            style = Vocal.apply(StyleWriter.atTempo(written ?? plain, bpm), vocal)
+            backend.append("스타일: \(style)")
+        }
+        title = Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle)
+        backend.generate(
+            title: title.trimmingCharacters(in: .whitespaces),
+            style: style,
+            lyrics: lyrics,
+            cot: "melody",
+            seed: seed,
+            randomSeed: randomSeed,
+            batch: batch,
+            maxTokens: Int(maxSeconds * 25),
+            engine: "auto",
+            abc: abc,
+            abcOpen: abcOpen,
+            quality: quality,
+            engines: engines,
+            instrumental: instrumental,
+            semanticTemperature: abc.isEmpty ? nil : adherence
+        )
+        converting = false
+        dismiss()
+    }
+
     static func coverTitle(from name: String, style: String) -> String {
         let base = name.split(separator: "_").first.map(String.init)?
             .trimmingCharacters(in: .whitespaces) ?? ""

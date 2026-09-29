@@ -29,9 +29,7 @@ struct GeminiSettingsView: View {
                 Text("모델")
                     .font(.subheadline)
                 Picker("모델 선택", selection: $model) {
-                    Text("gemini-3.5-flash").tag("gemini-3.5-flash")
-                    Text("gemini-2.5-flash").tag("gemini-2.5-flash")
-                    Text("gemini-1.5-flash").tag("gemini-1.5-flash")
+                    ForEach(Gemini.flashLine, id: \.self) { Text($0).tag($0) }
                     TextField("사용자 정의 모델", text: $model)
                 }
                 .pickerStyle(.menu)

@@ -28,6 +28,59 @@ enum Score {
         return lines.joined(separator: "\n")
     }
 
+    /// What the transcription says about the song, in the words a style writer needs: key,
+    /// metre, tempo, length and — the part that shapes an arrangement most — the run of
+    /// sections the transcriber marked ("% intro", "% verse", …) and whether the score carries
+    /// a separate instrumental line beside the vocal one.
+    static func analysis(_ abc: String) -> String {
+        let lines = abc.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        func header(_ prefix: String) -> String? {
+            guard let line = lines.first(where: { $0.hasPrefix(prefix) }) else { return nil }
+            let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? nil : value
+        }
+
+        var out: [String] = []
+        if let key = header("K:") { out.append("key: \(key)") }
+        let metre = header("M:")
+        if let metre { out.append("metre: \(metre)") }
+        let bpm = tempo(abc)
+        if let bpm { out.append("tempo: \(bpm) BPM") }
+
+        // The body only: headers and voice declarations carry no bars.
+        let body = lines.filter { $0.count < 2 || $0.dropFirst().first != ":" }
+        let bars = body.joined(separator: "\n").components(separatedBy: "|").count - 1
+        // One voice's bars are the song's bars; a two-voice score counts each bar once per voice.
+        // The voices are named, not counted: "V: Vocal" heads every one of its body lines too.
+        let named = Set(lines.filter { $0.hasPrefix("V:") }.compactMap {
+            $0.dropFirst(2).trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init)
+        })
+        let songBars = bars / max(1, named.count)
+        if songBars > 3 {
+            var length = "\(songBars) bars"
+            let beats = metre.flatMap { Int($0.split(separator: "/").first ?? "") } ?? 4
+            if let bpm, bpm > 0 {
+                let seconds = Int(Double(songBars * beats) / Double(bpm) * 60)
+                length += String(format: ", about %d:%02d", seconds / 60, seconds % 60)
+            }
+            out.append("length: \(length)")
+        }
+
+        // "% intro", "% verse", … in the order the transcriber marked them.
+        var sections: [String] = []
+        for line in lines where line.hasPrefix("%") && !line.hasPrefix("%%") {
+            let name = line.dropFirst().trimmingCharacters(in: .whitespaces).lowercased()
+            guard !name.isEmpty, name.count < 20, sections.last != name else { continue }
+            sections.append(name)
+        }
+        if !sections.isEmpty { out.append("structure: " + sections.joined(separator: " → ")) }
+
+        if lines.contains(where: { $0.contains("name=\"Ins Melody\"") || $0.hasPrefix("V: Ins") }) {
+            out.append("parts: a vocal melody line and a separate instrumental melody line")
+        }
+        return out.joined(separator: "\n")
+    }
+
     /// Style text restating a tempo it already mentions. YuE2 takes the tempo from the ABC and
     /// the style has to describe it consistently, so the two are changed together.
     static func styleAtTempo(_ style: String, _ bpm: Int) -> String {

@@ -343,20 +343,32 @@ struct ContentView: View {
     }
 
     private func applyStyleTag(_ tag: String) async {
-        if let prompt = StylePresets.prompt(tag) {
-            // Update style
-            if style.isEmpty || style.contains("Korean") {
-                style = prompt
-            } else {
-                style = style + ", " + prompt
-            }
+        guard let preset = StylePresets.prompt(tag) else { return }
 
-            // If no ABC score, generate lyrics with Gemini
-            if abc.isEmpty {
-                await autoGenerateLyrics()
-            }
-            // If ABC exists, just update style (cover song mode)
+        // No score yet: the chip sets the style for a song still to be written, and the words
+        // are written with it.
+        if abc.isEmpty {
+            style = (style.isEmpty || style.contains("Korean")) ? preset : style + ", " + preset
+            await autoGenerateLyrics()
+            return
         }
+
+        // A cover: the transcription says what the song is — its key, metre, tempo and length —
+        // so the chosen genre is written out to fit that rather than pasted in as one line.
+        //
+        // The preset goes in at once and the written style replaces it when it arrives. Waiting
+        // on the model left the chip spinning for half a minute, and the preset is a usable
+        // style in the meantime — press Generate before it lands and that is what is used.
+        let bpm = Score.tempo(abc)
+        style = Vocal.apply(StyleWriter.atTempo(preset, bpm), vocal)
+        upgradingStyle = true
+        let (written, note) = await StyleWriter.enrich(preset: preset, tempo: bpm,
+                                                       analysis: Score.analysis(abc),
+                                                       title: title.isEmpty ? titleAuto : title,
+                                                       lyrics: lyrics, instrumental: instrumental)
+        upgradingStyle = false
+        backend.append("스타일 작성: \(note)")         // why the style reads as it does
+        if let written { style = Vocal.apply(StyleWriter.atTempo(written, bpm), vocal) }
     }
 
     // MARK: - Style Conversion (Cover Song)

@@ -22,6 +22,14 @@ struct WrittenLyrics {
 }
 #endif
 
+/// The Gemini flash models this app knows, newest last-resort first.
+///
+/// One list, so the settings picker and the style writer's fallback chain cannot drift apart.
+enum Gemini {
+    static let flashLine = ["gemini-3.5-flash", "gemini-3.6-flash",
+                            "gemini-3.7-flash", "gemini-3.8-flash"]
+}
+
 /// Gemini REST API or on-device model for lyric writing and song title generation.
 enum TitleSuggester {
     static var geminiApiKey: String {
