@@ -53,6 +53,8 @@ class YouTubeConverter: ObservableObject {
             "--audio-quality", "0",
             "--output", outputTemplate,
             "--no-warnings",
+            // ffmpeg 위치 명시 (Homebrew 설치 경로)
+            "--ffmpeg-location", "/opt/homebrew/bin",
             urlString
         ]
 
@@ -62,6 +64,14 @@ class YouTubeConverter: ObservableObject {
         process?.executableURL = URL(fileURLWithPath: ytDlpPath)
         process?.arguments = args  // ytDlpPath is NOT in args - it's the executable
         process?.currentDirectoryURL = outputURL
+
+        // Set PATH to include Homebrew bin directory
+        let homebrewBin = "/opt/homebrew/bin"
+        let currentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        process?.environment = [
+            "PATH": "\(homebrewBin):\(currentPath)",
+            "HOME": NSHomeDirectory()
+        ]
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
