@@ -10,6 +10,7 @@ struct StyleConversionSheet: View {
     @AppStorage("abc") private var abc = ""
     @AppStorage("abcOpen") private var abcOpen = false
     @AppStorage("title") private var title = ""
+    @AppStorage("titleAuto") private var titleAuto = ""
     @AppStorage("seed") private var seed = 831001
     @AppStorage("maxSeconds") private var maxSeconds = 120.0
     @AppStorage("instrumental") private var instrumental = false
@@ -91,16 +92,12 @@ struct StyleConversionSheet: View {
             Button(action: {
                 converting = true
                 // Apply selected style
+                // A conversion replaces the style outright. Appending would stack two
+                // genres and two tempos, which read as contradictory instructions.
                 if let prompt = styleTags[selectedStyle] {
-                    if style.isEmpty || style.contains("Korean") {
-                        style = prompt
-                    } else {
-                        style = style + ", " + prompt
-                    }
+                    style = Self.withVocal(Self.atMelodyTempo(prompt, abc), vocal)
                 }
-                // The singer is part of the style prompt; replace any previous choice
-                // rather than stacking contradictory ones.
-                style = Self.withVocal(style, vocal)
+                title = Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle)
                 // Generate cover song
                 Task {
                     backend.generate(
@@ -147,15 +144,62 @@ struct StyleConversionSheet: View {
             }
             .disabled(selectedStyle.isEmpty || converting)
 
-            if abc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("전사된 멜로디가 없습니다 — 먼저 원곡을 전사하면 그 멜로디를 유지한 채 스타일만 바뀝니다.")
-                    .font(.caption).foregroundStyle(.orange).multilineTextAlignment(.center)
-            }
+            carryOver
 
             Spacer()
         }
         .padding(24)
         .frame(width: 500, height: 660)
+    }
+
+    /// What the conversion takes from the form, so nothing silently goes missing.
+    private var carryOver: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if abc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Label("전사된 멜로디가 없습니다 — 먼저 원곡을 전사하세요", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            } else {
+                Label("멜로디 유지" + (Self.melodyTempo(abc).map { " · \($0) BPM" } ?? ""),
+                      systemImage: "checkmark.circle")
+            }
+            Label(lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  ? "가사 없음 — 연주곡으로 생성됩니다"
+                  : "가사 \(lyrics.split(separator: "\n").filter { !$0.hasPrefix("[") && !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count)줄 사용",
+                  systemImage: lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "exclamationmark.triangle" : "checkmark.circle")
+                .foregroundStyle(lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.orange : Color.secondary)
+            if !selectedStyle.isEmpty {
+                Label("제목: \(Self.coverTitle(from: title.isEmpty ? titleAuto : title, style: selectedStyle))",
+                      systemImage: "textformat")
+            }
+        }
+        .font(.caption).foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The melody's own tempo, read from the ABC's Q: header (e.g. "Q:1/4=68").
+    static func melodyTempo(_ abc: String) -> Int? {
+        guard let line = abc.split(separator: "\n").first(where: { $0.hasPrefix("Q:") }),
+              let equals = line.lastIndex(of: "="),
+              let bpm = Int(line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)),
+              bpm > 20, bpm < 300 else { return nil }
+        return bpm
+    }
+
+    /// A preset's BPM restated as the transcribed melody's. YuE2 takes tempo from the ABC,
+    /// and the docs require the style to describe it consistently — a preset's stock BPM
+    /// would otherwise contradict the score by a factor of two.
+    static func atMelodyTempo(_ prompt: String, _ abc: String) -> String {
+        guard let bpm = melodyTempo(abc) else { return prompt }
+        return prompt.replacingOccurrences(of: "\\d+ BPM", with: "\(bpm) BPM",
+                                           options: .regularExpression)
+    }
+
+    /// "제목_스타일_커버", built from whatever name the song already carries.
+    static func coverTitle(from name: String, style: String) -> String {
+        let base = name.split(separator: "_").first.map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        guard !base.isEmpty else { return "\(style)_커버" }
+        return "\(base)_\(style)_커버"
     }
 
     /// Style text carrying exactly one vocal tag — the chosen one, or none for "자동".

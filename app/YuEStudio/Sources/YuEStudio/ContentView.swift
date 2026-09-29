@@ -84,7 +84,7 @@ struct ContentView: View {
         .onChange(of: backend.connected) { _, up in if up { backend.useRemote(useRemote ? remote.phone : nil) } }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in backend.rescan() }
         .sheet(item: $transcribeSource) { picked in
-            TranscribeSheetView(source: picked.url, hum: picked.hum, abc: $abc, abcOpen: $abcOpen, cot: $cot, lyrics: $lyrics, sheetsage: sheetsage).environmentObject(backend)
+            TranscribeSheetView(source: picked.url, hum: picked.hum, abc: $abc, abcOpen: $abcOpen, cot: $cot, lyrics: $lyrics, title: $title, sheetsage: sheetsage).environmentObject(backend)
         }
         .sheet(isPresented: $showTranscribeSheet) {
             // Empty view to trigger the transcribe sheet with audio upload
@@ -792,7 +792,10 @@ struct ContentView: View {
                 Text("대기열").bold()
                 Spacer()
                 let queued = backend.songs.filter { $0.status == .queued }.count
-                Text(queued == 0 ? "—" : "\(queued) 곡").foregroundStyle(Color.whiteTextSecondary)
+                let running = backend.songs.filter { $0.inFlight && $0.status != .queued }.count
+                let parts = [running > 0 ? "진행 중 \(running) 곡" : "", queued > 0 ? "대기 \(queued) 곡" : ""]
+                    .filter { !$0.isEmpty }
+                Text(parts.isEmpty ? "—" : parts.joined(separator: " · ")).foregroundStyle(Color.whiteTextSecondary)
             }
             .font(.caption)
         }
@@ -801,16 +804,30 @@ struct ContentView: View {
     }
 
     private func stageLine(_ title: String, _ songs: [Song]) -> some View {
-        HStack {
-            Text(title).bold().font(.caption)
-            Spacer()
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(title).bold().font(.caption)
+                Spacer()
+                if let first = songs.first {
+                    if let fraction = first.fraction {
+                        Text("\(Int((fraction * 100).rounded()))%").font(.caption).monospacedDigit().bold()
+                    }
+                    Text(first.detail.isEmpty ? first.runLabel : first.detail)
+                        .font(.caption)
+                        .foregroundStyle(Color.whiteTextSecondary)
+                        .lineLimit(1).truncationMode(.middle)
+                } else {
+                    Text("대기 중").font(.caption).foregroundStyle(Color.whiteTextSecondary)
+                }
+            }
+            // The worker reports a fraction per stage; an active stage without one is
+            // still working, so it gets an indeterminate bar rather than nothing.
             if let first = songs.first {
-                Text("\(first.runLabel)" + (first.detail.isEmpty ? "" : " · \(first.detail)"))
-                    .font(.caption)
-                    .foregroundStyle(Color.whiteTextSecondary)
-                    .lineLimit(1)
-            } else {
-                Text("대기 중").font(.caption).foregroundStyle(Color.whiteTextSecondary)
+                if let fraction = first.fraction {
+                    ProgressView(value: min(1, max(0, fraction))).controlSize(.small)
+                } else {
+                    ProgressView().progressViewStyle(.linear).controlSize(.small)
+                }
             }
         }
     }

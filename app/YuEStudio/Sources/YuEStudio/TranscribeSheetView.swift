@@ -14,6 +14,7 @@ struct TranscribeSheetView: View {
     @Binding var abcOpen: Bool
     @Binding var cot: String
     @Binding var lyrics: String
+    @Binding var title: String
     @ObservedObject var sheetsage: SheetSageInstaller
     @EnvironmentObject var backend: Backend
     @Environment(\.dismiss) private var dismiss
@@ -171,6 +172,17 @@ struct TranscribeSheetView: View {
         Button("Retry") { start() }.disabled(!backend.connected)
     }
 
+    /// A song name out of a downloaded file name: "원미연 - 이별여행 (1990年).mp3" → "이별여행".
+    static func songName(from url: URL) -> String {
+        var name = url.deletingPathExtension().lastPathComponent
+        if let dash = name.range(of: " - ", options: .backwards) {
+            name = String(name[dash.upperBound...])
+        }
+        name = name.replacingOccurrences(of: "[\\(\\[].*?[\\)\\]]", with: "", options: .regularExpression)
+        name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? url.deletingPathExtension().lastPathComponent : name
+    }
+
     private var bottomBar: some View {
         HStack {
             if backend.transcribe == .review {
@@ -198,6 +210,9 @@ struct TranscribeSheetView: View {
                     cot = "melody"                 // external ABC requires melody/full planning
                     if !editedLyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         lyrics = editedLyrics
+                    }
+                    if title.trimmingCharacters(in: .whitespaces).isEmpty {
+                        title = Self.songName(from: source)   // gives the cover title something to build on
                     }
                     backend.transcribe = .idle
                     dismiss()
