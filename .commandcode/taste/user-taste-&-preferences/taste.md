@@ -5,3 +5,4 @@
 - Utilizes structured string markers (e.g., `\nSTYLE:`) within LLM prompts to extract metadata back into the frontend state, enabling bidirectional refinement of prompts and UI context. Confidence: 0.8
 - Combines local style presets (genre, BPM tags) with cloud-based LLM generation to bootstrap and refine creative outputs. Confidence: 0.7
 - Expects visible, multi-stage progress indicators (specifically 4 distinct stages) for long-running operations like conversion/transcription pipelines, rather than hidden or absent loading states. Confidence: 0.9
+- Prefers real-time visibility of detailed logs and CLI outputs (stdout/stderr) for asynchronous background operations and external tool invocations, ensuring transparent debugging feedback instead of silent execution. Confidence: 0.8
