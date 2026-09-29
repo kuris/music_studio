@@ -2,16 +2,16 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
-// MARK: - Dark Theme Design System
+// MARK: - White Theme Design System
 extension Color {
-    static let darkBackground = Color(red: 0.06, green: 0.08, blue: 0.11) // #10141d
-    static let darkPanel = Color(red: 0.09, green: 0.11, blue: 0.15) // #161b26
-    static let darkPanelHover = Color(red: 0.12, green: 0.14, blue: 0.21) // #1e2535
-    static let darkBorder = Color(red: 0.17, green: 0.20, blue: 0.29) // #2a3449
-    static let darkAccentPrimary = Color(red: 0.49, green: 0.23, blue: 0.93) // #7c3aed
-    static let darkAccentSecondary = Color(red: 0.93, green: 0.28, blue: 0.60) // #ec4899
-    static let darkTextPrimary = Color(red: 0.89, green: 0.91, blue: 0.94) // #e2e8f0
-    static let darkTextSecondary = Color(red: 0.58, green: 0.64, blue: 0.75) // #94a3b8
+    static let whiteBackground = Color(red: 0.98, green: 0.98, blue: 0.99) // #FAFAFA
+    static let whitePanel = Color(red: 1.0, green: 1.0, blue: 1.0) // #FFFFFF
+    static let whitePanelHover = Color(red: 0.96, green: 0.96, blue: 0.98) // #F5F5FA
+    static let whiteBorder = Color(red: 0.88, green: 0.88, blue: 0.92) // #E0E0EC
+    static let whiteAccentPrimary = Color(red: 0.49, green: 0.23, blue: 0.93) // #7c3aed
+    static let whiteAccentSecondary = Color(red: 0.93, green: 0.28, blue: 0.60) // #ec4899
+    static let whiteTextPrimary = Color(red: 0.15, green: 0.15, blue: 0.20) // #262633
+    static let whiteTextSecondary = Color(red: 0.50, green: 0.50, blue: 0.58) // #808094
 }
 
 struct ContentView: View {
@@ -68,7 +68,7 @@ struct ContentView: View {
             }.frame(minWidth: 500)
         }
         .frame(minWidth: 1000, minHeight: 700)
-        .background(Color.darkBackground)
+        .background(Color.whiteBackground)
         .onAppear {
             backend.rescan(); if backend.process == nil { backend.start() }; remote.start()
             backend.remoteRetry = { if useRemote, let phone = remote.phone { backend.useRemote(phone) } }
@@ -120,16 +120,16 @@ struct ContentView: View {
         HStack {
             HStack(spacing: 8) {
                 Image(systemName: "music.note.list")
-                    .foregroundStyle(Color.darkAccentPrimary)
+                    .foregroundStyle(Color.whiteAccentPrimary)
                 Text("YuE Studio")
                     .font(.headline)
-                    .foregroundStyle(Color.darkTextPrimary)
+                    .foregroundStyle(Color.whiteTextPrimary)
                 Text("v2.0")
                     .font(.caption)
-                    .foregroundStyle(Color.darkTextSecondary)
+                    .foregroundStyle(Color.whiteTextSecondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.darkPanel, in: Capsule())
+                    .background(Color.whitePanel, in: Capsule())
             }
             Spacer()
             // Gemini Key Status
@@ -137,15 +137,15 @@ struct ContentView: View {
                 if !TitleSuggester.geminiApiKey.isEmpty {
                     Image(systemName: "key.fill")
                         .foregroundStyle(.green)
-                    Text("Gemini 3.5 Flash").font(.caption).foregroundStyle(Color.darkTextSecondary)
+                    Text("Gemini 3.5 Flash").font(.caption).foregroundStyle(Color.whiteTextSecondary)
                 } else {
                     Image(systemName: "key")
-                        .foregroundStyle(Color.darkTextSecondary)
-                    Text("Gemini 설정").font(.caption).foregroundStyle(Color.darkTextSecondary)
+                        .foregroundStyle(Color.whiteTextSecondary)
+                    Text("Gemini 설정").font(.caption).foregroundStyle(Color.whiteTextSecondary)
                 }
                 Button(action: { showGeminiSettings = true }) {
                     Image(systemName: "gear")
-                        .foregroundStyle(Color.darkTextSecondary)
+                        .foregroundStyle(Color.whiteTextSecondary)
                 }
                 .buttonStyle(.plain)
                 .help("Gemini API 키 설정")
@@ -154,7 +154,7 @@ struct ContentView: View {
             if !backend.hardwareInfo.isEmpty {
                 Text(backend.hardwareInfo)
                     .font(.caption)
-                    .foregroundStyle(Color.darkTextSecondary)
+                    .foregroundStyle(Color.whiteTextSecondary)
             }
         }
         .padding(.horizontal, 4)
@@ -166,7 +166,7 @@ struct ContentView: View {
             HStack {
                 Text("가사")
                     .font(.subheadline)
-                    .foregroundStyle(Color.darkTextPrimary)
+                    .foregroundStyle(Color.whiteTextPrimary)
                 Spacer()
                 HStack(spacing: 8) {
                     Toggle("가사 없이 (연주곡)", isOn: $instrumental)
@@ -186,24 +186,24 @@ struct ContentView: View {
                 .disabled(writingLyrics)
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.darkBorder, lineWidth: 1)
+                        .stroke(Color.whiteBorder, lineWidth: 1)
                 )
                 .overlay {
                     if writingLyrics {
                         VStack(spacing: 8) {
                             ProgressView()
-                            Text("AI 가사 작성 중...").font(.caption).foregroundStyle(Color.darkTextSecondary)
+                            Text("AI 가사 작성 중...").font(.caption).foregroundStyle(Color.whiteTextSecondary)
                         }
                         .padding(16)
-                        .background(Color.darkPanel.opacity(0.9), in: RoundedRectangle(cornerRadius: 10))
+                        .background(Color.whitePanel.opacity(0.9), in: RoundedRectangle(cornerRadius: 10))
                     }
                 }
             Text("[Verse] [Pre-Chorus] [Chorus] [Bridge] 로 구간을 나누면 곡 구조가 좋아집니다.")
                 .font(.caption)
-                .foregroundStyle(Color.darkTextSecondary)
+                .foregroundStyle(Color.whiteTextSecondary)
         }
         .padding(12)
-        .background(Color.darkPanel, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
         .sheet(isPresented: $showTagGuide) {
             TagGuideView()
         }
@@ -216,7 +216,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("스타일")
                 .font(.subheadline)
-                .foregroundStyle(Color.darkTextPrimary)
+                .foregroundStyle(Color.whiteTextPrimary)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(styleTags, id: \.self) { tag in
@@ -225,8 +225,8 @@ struct ContentView: View {
                                 .font(.caption)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Color.darkBorder, in: Capsule())
-                                .foregroundStyle(Color.darkTextPrimary)
+                                .background(Color.whiteBorder, in: Capsule())
+                                .foregroundStyle(Color.whiteTextPrimary)
                         }
                         .buttonStyle(.plain)
                         .onHover { hovering in
@@ -267,7 +267,7 @@ struct ContentView: View {
             HStack {
                 Text("스타일 프롬프트")
                     .font(.subheadline)
-                    .foregroundStyle(Color.darkTextPrimary)
+                    .foregroundStyle(Color.whiteTextPrimary)
                 Spacer()
                 HStack {
                     TextField("시드", value: $seed, format: .number)
@@ -284,14 +284,14 @@ struct ContentView: View {
                 .frame(height: max(60, min(styleHeight, 300)))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.darkBorder, lineWidth: 1)
+                        .stroke(Color.whiteBorder, lineWidth: 1)
                 )
             Text("장르, 악기, 보컬 , 분위기, BPM을 영어로 적으면 가장 잘 나옵니다.")
                 .font(.caption)
-                .foregroundStyle(Color.darkTextSecondary)
+                .foregroundStyle(Color.whiteTextSecondary)
         }
         .padding(12)
-        .background(Color.darkPanel, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
     }
 
     // MARK: - Generate Button
@@ -313,7 +313,7 @@ struct ContentView: View {
             .padding(.vertical, 12)
             .background(
                 LinearGradient(
-                    colors: [Color.darkAccentPrimary, Color.darkAccentSecondary],
+                    colors: [Color.whiteAccentPrimary, Color.whiteAccentSecondary],
                     startPoint: .leading,
                     endPoint: .trailing
                 ),
@@ -333,7 +333,7 @@ struct ContentView: View {
             HStack {
                 Text("내 곡")
                     .font(.headline)
-                    .foregroundStyle(Color.darkTextPrimary)
+                    .foregroundStyle(Color.whiteTextPrimary)
                 Spacer()
                 Button("폴더") { NSWorkspace.shared.open(Paths.output) }
                     .font(.caption)
@@ -353,12 +353,12 @@ struct ContentView: View {
             // Songs List
             Text("이미 만든 곡 정리")
                 .font(.caption)
-                .foregroundStyle(Color.darkTextSecondary)
+                .foregroundStyle(Color.whiteTextSecondary)
 
             if backend.songs.isEmpty {
                 Text("생성된 곡이 없습니다")
                     .font(.caption)
-                    .foregroundStyle(Color.darkTextSecondary)
+                    .foregroundStyle(Color.whiteTextSecondary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 40)
             } else {
@@ -368,7 +368,7 @@ struct ContentView: View {
                             HStack {
                                 Button(action: { players.toggle(song) }) {
                                     Image(systemName: players.playing == song.id ? "pause.circle.fill" : "play.circle.fill")
-                                        .foregroundStyle(players.current?.id == song.id ? Color.darkAccentPrimary : Color.darkTextPrimary)
+                                        .foregroundStyle(players.current?.id == song.id ? Color.whiteAccentPrimary : Color.whiteTextPrimary)
                                 }
                                 .buttonStyle(.plain)
 
@@ -376,22 +376,22 @@ struct ContentView: View {
                                     Text(song.rowName)
                                         .font(.caption)
                                         .bold()
-                                        .foregroundStyle(Color.darkTextPrimary)
+                                        .foregroundStyle(Color.whiteTextPrimary)
                                     Text("\(String(format: "%.1f", song.seconds)) s · seed \(song.seed)")
                                         .font(.caption2)
-                                        .foregroundStyle(Color.darkTextSecondary)
+                                        .foregroundStyle(Color.whiteTextSecondary)
                                 }
                             }
                         }
                         .padding(8)
-                        .background(Color.darkPanel, in: RoundedRectangle(cornerRadius: 6))
+                        .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 6))
                     }
                 }
                 .listStyle(.plain)
             }
         }
         .padding(12)
-        .background(Color.darkPanel)
+        .background(Color.whitePanel)
     }
 
     // MARK: - Pipeline Status
@@ -405,12 +405,12 @@ struct ContentView: View {
                 Text("대기열").bold()
                 Spacer()
                 let queued = backend.songs.filter { $0.status == .queued }.count
-                Text(queued == 0 ? "—" : "\(queued) 곡").foregroundStyle(Color.darkTextSecondary)
+                Text(queued == 0 ? "—" : "\(queued) 곡").foregroundStyle(Color.whiteTextSecondary)
             }
             .font(.caption)
         }
         .padding(12)
-        .background(Color.darkPanel, in: RoundedRectangle(cornerRadius: 8))
+        .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func stageLine(_ title: String, _ songs: [Song]) -> some View {
@@ -420,10 +420,10 @@ struct ContentView: View {
             if let first = songs.first {
                 Text("\(first.runLabel)" + (first.detail.isEmpty ? "" : " · \(first.detail)"))
                     .font(.caption)
-                    .foregroundStyle(Color.darkTextSecondary)
+                    .foregroundStyle(Color.whiteTextSecondary)
                     .lineLimit(1)
             } else {
-                Text("대기 중").font(.caption).foregroundStyle(Color.darkTextSecondary)
+                Text("대기 중").font(.caption).foregroundStyle(Color.whiteTextSecondary)
             }
         }
     }
@@ -499,7 +499,7 @@ struct ContentView: View {
     }
 
     private func resizeHandle(height: Binding<Double>, dragStart: Binding<Double?>, range: ClosedRange<Double>) -> some View {
-        HStack { Spacer(); Capsule().fill(Color.darkBorder).frame(width: 44, height: 4); Spacer() }
+        HStack { Spacer(); Capsule().fill(Color.whiteBorder).frame(width: 44, height: 4); Spacer() }
             .frame(height: 10).contentShape(Rectangle())
             .onHover { inside in if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
             .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
