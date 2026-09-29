@@ -51,6 +51,7 @@ struct ContentView: View {
     @State private var showGeminiSettings = false
     @AppStorage("autoSaveMP3") private var autoSaveMP3 = true
     @AppStorage("deleteOriginalWAV") private var deleteOriginalWAV = false
+    @State private var generatingLyrics = false  // Gemini 가사 생성 중 상태
 
     // Style tags for quick selection
     let styleTags = [
@@ -162,48 +163,81 @@ struct ContentView: View {
 
     // MARK: - Lyrics Section
     private var lyricsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("가사")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.whiteTextPrimary)
-                Spacer()
-                HStack(spacing: 8) {
-                    Toggle("가사 없이 (연주곡)", isOn: $instrumental)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                    TextField("곡 제목", text: $title)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 140)
-                    Button("태그 안내") { showTagGuide = true }
-                        .font(.caption)
-                        .buttonStyle(.bordered)
-                }
-            }
-            TextEditor(text: $lyrics)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 200)
-                .disabled(writingLyrics)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.whiteBorder, lineWidth: 1)
-                )
-                .overlay {
-                    if writingLyrics {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                            Text("AI 가사 작성 중...").font(.caption).foregroundStyle(Color.whiteTextSecondary)
-                        }
-                        .padding(16)
-                        .background(Color.whitePanel.opacity(0.9), in: RoundedRectangle(cornerRadius: 10))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("가사")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.whiteTextPrimary)
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Toggle("가사 없이 (연주곡)", isOn: $instrumental)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                        TextField("곡 제목", text: $title)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 140)
+                        Button("태그 안내") { showTagGuide = true }
+                            .font(.caption)
+                            .buttonStyle(.bordered)
                     }
                 }
-            Text("[Verse] [Pre-Chorus] [Chorus] [Bridge] 로 구간을 나누면 곡 구조가 좋아집니다.")
-                .font(.caption)
-                .foregroundStyle(Color.whiteTextSecondary)
+                TextEditor(text: $lyrics)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 120, maxHeight: 200)
+                    .disabled(writingLyrics || generatingLyrics)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.whiteBorder, lineWidth: 1)
+                    )
+                    .overlay {
+                        if writingLyrics || generatingLyrics {
+                            VStack(spacing: 8) {
+                                ProgressView()
+                                Text(writingLyrics ? "AI 가사 작성 중..." : "스타일별 가사 생성 중...")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.whiteTextSecondary)
+                            }
+                            .padding(16)
+                            .background(Color.whitePanel.opacity(0.9), in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                Text("[Verse] [Pre-Chorus] [Chorus] [Bridge] 로 구간을 나누면 곡 구조가 좋아집니다.")
+                    .font(.caption)
+                    .foregroundStyle(Color.whiteTextSecondary)
+
+                // Auto Generate Lyrics Button
+                Button(action: { Task { await autoGenerateLyrics() } }) {
+                    HStack {
+                        if generatingLyrics {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("생성 중...")
+                        } else {
+                            Image(systemName: "sparkles")
+                            Text("가사 자동 생성 (Gemini)")
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.whiteAccentPrimary, Color.whiteAccentSecondary],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        in: RoundedRectangle(cornerRadius: 8)
+                    )
+                    .foregroundStyle(.white)
+                    .font(.headline)
+                }
+                .disabled(!TitleSuggester.modelAvailable || writingLyrics || generatingLyrics)
+                .help(TitleSuggester.geminiApiKey.isEmpty ? "Gemini API 키를 설정하세요" : "스타일과 제목을 기반으로 AI가 가사를 생성합니다")
+            }
+            .padding(12)
+            .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
         }
-        .padding(12)
-        .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxHeight: 300)
         .sheet(isPresented: $showTagGuide) {
             TagGuideView()
         }
@@ -220,25 +254,29 @@ struct ContentView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(styleTags, id: \.self) { tag in
-                        Button(action: { applyStyleTag(tag) }) {
-                            Text(tag)
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.whiteBorder, in: Capsule())
-                                .foregroundStyle(Color.whiteTextPrimary)
+                        Button(action: { Task { await applyStyleTag(tag) } }) {
+                            HStack(spacing: 6) {
+                                Text(tag)
+                                    .font(.caption)
+                                    .foregroundStyle(Color.whiteTextPrimary)
+                                if generatingLyrics {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.8)
+                                }
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.whiteBorder, in: Capsule())
                         }
                         .buttonStyle(.plain)
-                        .onHover { hovering in
-                            // Visual feedback handled by button style
-                        }
                     }
                 }
             }
         }
     }
 
-    private func applyStyleTag(_ tag: String) {
+    private func applyStyleTag(_ tag: String) async {
         let tagPrompts: [String: String] = [
             "시티팝": "Korean city pop, warm analog synth, smooth bass, 95 BPM",
             "트로트": "Korean trot, accordion, brass, upbeat rhythm, 120 BPM",
@@ -253,45 +291,87 @@ struct ContentView: View {
         ]
 
         if let prompt = tagPrompts[tag] {
+            // Update style first
             if style.isEmpty || style.contains("Korean") {
                 style = prompt
             } else {
                 style = style + ", " + prompt
             }
+
+            // Auto generate lyrics with Gemini
+            await autoGenerateLyrics()
+        }
+    }
+
+    // MARK: - Auto Lyrics Generation
+    private func autoGenerateLyrics() async {
+        generatingLyrics = true
+        defer { generatingLyrics = false }
+
+        // Use Gemini to generate lyrics based on current style
+        let result = await TitleSuggester.writeLyricsViaGemini(
+            apiKey: TitleSuggester.geminiApiKey,
+            model: TitleSuggester.geminiModel,
+            style: style,
+            title: title,
+            about: lyricsAbout
+        )
+
+        switch result {
+        case .success(let lyrics):
+            self.lyrics = lyrics
+            lyricsVersion += 1
+            // Try to extract and apply suggested style (if provided)
+            if let styleRange = lyrics.range(of: "\nSTYLE: ", options: .backwards) {
+                let suggestedStyle = String(lyrics[lyrics.index(after: styleRange.upperBound)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !suggestedStyle.isEmpty {
+                    // Append suggested style to current style
+                    if self.style.isEmpty {
+                        self.style = suggestedStyle
+                    } else {
+                        self.style = self.style + ", " + suggestedStyle
+                    }
+                }
+            }
+        case .failure(let error):
+            lyricsAlert = "AI 가사 생성 실패: \(error.localizedDescription)"
         }
     }
 
     // MARK: - Style Prompt
     private var stylePromptSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("스타일 프롬프트")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.whiteTextPrimary)
-                Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    TextField("시드", value: $seed, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
-                        .disabled(randomSeed)
-                    Toggle("랜덤", isOn: $randomSeed)
-                        .toggleStyle(.switch)
-                        .labelsHidden()
+                    Text("스타일 프롬프트")
+                        .font(.subheadline)
+                        .foregroundStyle(Color.whiteTextPrimary)
+                    Spacer()
+                    HStack {
+                        TextField("시드", value: $seed, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                            .disabled(randomSeed)
+                        Toggle("랜덤", isOn: $randomSeed)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
                 }
+                TextEditor(text: $style)
+                    .font(.system(.body, design: .monospaced))
+                    .frame(minHeight: 80, maxHeight: 150)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.whiteBorder, lineWidth: 1)
+                    )
+                Text("장르, 악기, 보컬 , 분위기, BPM을 영어로 적으면 가장 잘 나옵니다.")
+                    .font(.caption)
+                    .foregroundStyle(Color.whiteTextSecondary)
             }
-            TextEditor(text: $style)
-                .font(.system(.body, design: .monospaced))
-                .frame(height: max(60, min(styleHeight, 300)))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.whiteBorder, lineWidth: 1)
-                )
-            Text("장르, 악기, 보컬 , 분위기, BPM을 영어로 적으면 가장 잘 나옵니다.")
-                .font(.caption)
-                .foregroundStyle(Color.whiteTextSecondary)
+            .padding(12)
+            .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
         }
-        .padding(12)
-        .background(Color.whitePanel, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxHeight: 200)
     }
 
     // MARK: - Generate Button

@@ -74,7 +74,7 @@ enum TitleSuggester {
         #endif
     }
 
-    private static func writeLyricsViaGemini(apiKey: String, model: String, style: String, title: String, about: String) async -> Result<String, Error> {
+    public static func writeLyricsViaGemini(apiKey: String, model: String, style: String, title: String, about: String) async -> Result<String, Error> {
         let urlString = "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent?key=\(apiKey)"
         guard let url = URL(string: urlString) else {
             return .failure(NSError(domain: "TitleSuggester", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid Gemini URL"]))
@@ -89,6 +89,9 @@ enum TitleSuggester {
         Style: \(style.isEmpty ? "K-Pop ballad" : style)
         Title: \(title.isEmpty ? "Untitled" : title)
         Theme/Story: \(about.isEmpty ? "Heartfelt story" : about)
+
+        After writing the lyrics, provide a brief style description (1-2 sentences) that matches the lyrics' mood, genre, and instrumentation.
+        Format: "LYRICS\n\nSTYLE: <style description>"
         """
 
         let payload: [String: Any] = [
@@ -126,7 +129,15 @@ enum TitleSuggester {
                 return .failure(NSError(domain: "GeminiAPI", code: -2, userInfo: [NSLocalizedDescriptionKey: "Failed to parse Gemini response"]))
             }
 
-            return .success(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            // Parse response: lyrics + style suggestion
+            let resultText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let styleRange = resultText.range(of: "\nSTYLE: ", options: .backwards) {
+                let lyrics = String(resultText[..<styleRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let suggestedStyle = String(resultText[resultText.index(after: styleRange.upperBound)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                return .success(lyrics)  // Return lyrics; style update handled in ContentView
+            }
+
+            return .success(resultText)
         } catch {
             return .failure(error)
         }
