@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(swift:*)",
+      "Shell(grep:*)",
+      "Shell(bash app/package.sh 2 >& 1)",
+      "Shell(git:*)"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}
