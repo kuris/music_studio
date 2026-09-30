@@ -74,7 +74,9 @@ final class Backend: ObservableObject {
         p.terminationHandler = { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                self.connected = false; self.process = nil; self.append("Worker exited"); self.rescan()
+                self.connected = false; self.process = nil; self.append("Worker exited")
+                self.settleInFlight("워커가 종료되었습니다")
+                self.rescan()
                 if self.transcribe == .transcribing { self.transcribe = .failed("the worker exited", code: "worker") }
             }
         }
@@ -195,6 +197,29 @@ final class Backend: ObservableObject {
     /// Reconcile with the songs folder: everything on disk is listed (finished songs, and songs whose
     /// tokens were saved but never synthesized), and entries whose files are gone disappear. Songs
     /// the worker is still working on, and failures of this session, are kept as they are.
+    /// Settle every song the worker was in the middle of when it died.
+    ///
+    /// rescan() keeps in-flight rows on purpose: they live only in memory and disk knows nothing
+    /// about them yet. That is right while a worker is alive and wrong the moment it is not — the
+    /// row keeps its spinner and its stage on "Tokenizing" for ever, so a song that is never
+    /// coming back reads as one still on its way, and the only way out is to restart the app.
+    ///
+    /// A song whose tokens did reach disk becomes stalled rather than failed: that is the state
+    /// with the "이어서 렌더링" button, and those tokens are the expensive half of the work.
+    func settleInFlight(_ reason: String) {
+        let fm = FileManager.default
+        for i in songs.indices where songs[i].inFlight {
+            let directory = songs[i].directory
+            let saved = fm.fileExists(atPath: directory.appendingPathComponent("semantic.npy").path)
+                && fm.fileExists(atPath: directory.appendingPathComponent("plan_manifest.json").path)
+            songs[i].status = saved ? .stalled : .failed
+            songs[i].detail = saved ? "" : reason
+            songs[i].fraction = nil
+            songs[i].gflops = nil
+            append("\(songs[i].rowName): \(saved ? "토큰은 저장됨 — 이어서 렌더링할 수 있습니다" : reason)")
+        }
+    }
+
     func rescan() {
         let kept = songs.filter { $0.inFlight || $0.status == .failed }
         let onDisk = Song.scan(Paths.output)
