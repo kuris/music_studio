@@ -512,6 +512,16 @@ struct ContentView: View {
                         Picker("", selection: $batch) {
                             ForEach(1...4, id: \.self) { Text("\($0)").tag($0) }
                         }.pickerStyle(.segmented).labelsHidden().frame(width: 130)
+                        // How long the song may run. It was a bare defaults key, so a song that
+                        // stopped mid-verse looked like the model giving up rather than a setting
+                        // nobody could see. The ladder tops out where the Neural Engine does.
+                        Text("길이").font(.caption).foregroundStyle(Color.whiteTextSecondary)
+                        Picker("", selection: $maxSeconds) {
+                            ForEach(Array(stride(from: 120.0, through: 480.0, by: 30.0)), id: \.self) {
+                                Text(String(format: "%d:%02d", Int($0) / 60, Int($0) % 60)).tag($0)
+                            }
+                        }.labelsHidden().frame(width: 80)
+                        .help("길수록 생성이 오래 걸립니다. 노래가 먼저 끝나면 그 자리에서 멈춥니다.")
                         TextField("시드", value: $seed, format: .number)
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 80)

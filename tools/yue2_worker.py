@@ -968,7 +968,11 @@ def submit_generate(req):
             stamp += "b"; out_root = OUTPUT_DIR / stamp
         STAMPS.add(out_root)
     steps = steps_for(quality, req)
-    limit = max(1, min(int(req.get("max_tokens", 9000)), 9000))
+    # 25 tokens a second, so the ceiling is the song length. It used to stop at 9000 (6:00)
+    # for no reason the synthesis side shares: the context holds far more, and ANE_MAX_FRAMES
+    # is where a real cliff sits — past it the compiler refuses the bucket and the song drops
+    # to the GPU. Stopping there keeps every length the Neural Engine can still take.
+    limit = max(1, min(int(req.get("max_tokens", 9000)), ANE_MAX_FRAMES))
     songs = []
     for i, seed in enumerate(seeds):
         request = SongRequest(style=style, lyrics=lyrics, cot=mode, seed=seed, abc=abc, abc_open=abc_open,
