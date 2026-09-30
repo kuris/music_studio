@@ -20,6 +20,17 @@ struct Song: Identifiable, Equatable {
     var priority = 0                             // scheduling order (1 = first added); 0 = unknown
     var title = ""                               // the run's title, if the user gave one
     var directory: URL { URL(fileURLWithPath: path).deletingLastPathComponent() }
+
+    /// The file to play. `path` stays the FLAC whatever happens, because it is this song's id and
+    /// a row that changed identity when its master was replaced would lose its place in the list.
+    /// What exists on disk is a separate question: the MP3 is all that is left once the original
+    /// has been cleared away to save space.
+    var audioFile: URL {
+        let flac = URL(fileURLWithPath: path)
+        if FileManager.default.fileExists(atPath: flac.path) { return flac }
+        let mp3 = flac.deletingPathExtension().appendingPathExtension("mp3")
+        return FileManager.default.fileExists(atPath: mp3.path) ? mp3 : flac
+    }
     var inFlight: Bool { [.queued, .planning, .tokens, .synth, .decode].contains(status) }
     var runLabel: String {
         let f = DateFormatter(); f.dateFormat = "yyyyMMdd-HHmmss"
@@ -61,7 +72,7 @@ struct Song: Identifiable, Equatable {
         case .tokens: return "Tokenizing on GPU" + (detail.isEmpty ? "" : " · \(detail)") + throughput
         case .synth: return "Synthing" + (engineLabel.isEmpty ? "" : " using \(engineLabel)") + (detail.isEmpty ? "" : " · \(detail)") + throughput
         case .decode: return "Rendering on GPU" + (detail.isEmpty ? "" : " · \(detail)") + throughput
-        case .ready: return "Done"
+        case .ready: return "Done" + (truncated ? " · 길이 제한에서 잘림" : "")
         case .stalled: return "Tokens saved · not synthesized yet"
         case .failed: return "Failed · \(detail)"
         }
@@ -77,7 +88,11 @@ struct Song: Identifiable, Equatable {
             guard let dirs = try? fm.contentsOfDirectory(at: run, includingPropertiesForKeys: nil) else { continue }
             for dir in dirs where dir.lastPathComponent.hasPrefix("song") {
                 let audio = dir.appendingPathComponent("audio.flac")
+                // A finished song whose FLAC was cleared away still has its MP3, and it is
+                // finished — reading it as "tokens saved, not synthesized" would offer to
+                // re-render a song that is already done.
                 let hasAudio = fm.fileExists(atPath: audio.path)
+                    || fm.fileExists(atPath: dir.appendingPathComponent("audio.mp3").path)
                 let hasTokens = fm.fileExists(atPath: dir.appendingPathComponent("semantic.npy").path) && fm.fileExists(atPath: dir.appendingPathComponent("plan_manifest.json").path)
                 guard hasAudio || hasTokens else { continue }
                 let json = { (name: String) -> [String: Any]? in (try? JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent(name)))) as? [String: Any] }

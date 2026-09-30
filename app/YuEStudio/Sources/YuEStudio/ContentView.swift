@@ -24,6 +24,7 @@ struct ContentView: View {
     @AppStorage("randomSeed") private var randomSeed = false
     @AppStorage("batch") private var batch = 2
     @AppStorage("maxSeconds") private var maxSeconds = 120.0
+    @AppStorage("matchGenreTempo") private var matchGenreTempo = true
     @AppStorage("qualityMode") private var qualityMode = "draft-gpu"
     @AppStorage("useRemote") private var useRemote = true
     @StateObject private var remote = RemoteBrowser()
@@ -57,6 +58,7 @@ struct ContentView: View {
     @State private var showScoreEditSheet = false   // 폼에 들어있는 ABC 악보 편집
     @State private var showStyleConversionSheet = false  // 스타일 변환 시트 표시
     @StateObject private var youtubeConverter = YouTubeConverter()  // YouTube 변환기
+    @StateObject private var exporter = AudioExport()               // FLAC → MP3
     @State private var youtubeURL = ""  // YouTube 링크
 
     // Style tags for quick selection
@@ -74,7 +76,16 @@ struct ContentView: View {
         }
         .frame(minWidth: 1000, minHeight: 700)
         .background(Color.whiteBackground)
+        // Eight places set this — a failed lyric, a refused style, a YouTube link that would not
+        // convert — and none of them reached the screen, because nothing ever presented it.
+        .alert("알림", isPresented: Binding(get: { lyricsAlert != nil },
+                                          set: { if !$0 { lyricsAlert = nil } })) {
+            Button("확인", role: .cancel) { lyricsAlert = nil }
+        } message: {
+            Text(lyricsAlert ?? "")
+        }
         .onAppear {
+            exporter.log = { [weak backend] message in backend?.append(message) }
             backend.rescan(); if backend.process == nil { backend.start() }; remote.start()
             backend.remoteRetry = { if useRemote, let phone = remote.phone { backend.useRemote(phone) } }
         }
@@ -359,7 +370,7 @@ struct ContentView: View {
         // The preset goes in at once and the written style replaces it when it arrives. Waiting
         // on the model left the chip spinning for half a minute, and the preset is a usable
         // style in the meantime — press Generate before it lands and that is what is used.
-        let bpm = Score.tempo(abc)
+        let bpm = retimeForGenre(tag)
         style = Vocal.apply(StyleWriter.atTempo(preset, bpm), vocal)
         upgradingStyle = true
         let (written, note) = await StyleWriter.enrich(preset: preset, tempo: bpm,
@@ -369,6 +380,22 @@ struct ContentView: View {
         upgradingStyle = false
         backend.append("스타일 작성: \(note)")         // why the style reads as it does
         if let written { style = Vocal.apply(StyleWriter.atTempo(written, bpm), vocal) }
+    }
+
+    /// Move the score toward the genre's tempo and return the tempo everything else should name.
+    ///
+    /// The score is rewritten too, not just the style line. The ABC is what the melody is
+    /// actually played from, so a style reading "150 BPM" over a Q: still saying 70 is two
+    /// instructions that contradict each other, and the score is the one that wins.
+    @discardableResult private func retimeForGenre(_ tag: String) -> Int? {
+        let original = Score.tempo(abc)
+        guard matchGenreTempo, let original, let genre = StylePresets.tempo(tag),
+              let fitted = Score.tempoFitting(original: original, genre: genre),
+              fitted.bpm != original
+        else { return original }
+        abc = Score.withTempo(abc, fitted.bpm)
+        backend.append("템포: \(original) → \(fitted.bpm) BPM (\(fitted.ratio), \(tag) 기준 \(genre))")
+        return fitted.bpm
     }
 
     // MARK: - Style Conversion (Cover Song)
@@ -769,9 +796,20 @@ struct ContentView: View {
                 Toggle("완성되면 MP3로 자동 저장", isOn: $autoSaveMP3)
                     .toggleStyle(.switch)
                     .labelsHidden()
-                Toggle("원본(WAV) 지워 용량 아끼기", isOn: $deleteOriginalWAV)
+                    .disabled(!AudioExport.installed)
+                if !AudioExport.installed {
+                    Text("ffmpeg가 없어 MP3를 만들 수 없습니다 — brew install ffmpeg")
+                        .font(.caption2).foregroundStyle(.orange)
+                } else if !exporter.failure.isEmpty {
+                    Text(exporter.failure).font(.caption2).foregroundStyle(.orange).lineLimit(2)
+                }
+                // The label said WAV; songs have always been written as FLAC. Key kept as it is so
+                // the stored setting survives the rename.
+                Toggle("MP3를 만들면 원본(FLAC) 지우기", isOn: $deleteOriginalWAV)
                     .toggleStyle(.switch)
                     .labelsHidden()
+                    .disabled(!AudioExport.installed)
+                    .help("무손실 원본을 지웁니다. MP3가 제대로 만들어진 뒤에만 지우고, 로그에 남깁니다.")
             }
 
             // Songs List
@@ -825,6 +863,14 @@ struct ContentView: View {
                                          + (song.quality == "draft" ? " · draft" : ""))
                                         .font(.caption2)
                                         .foregroundStyle(Color.whiteTextSecondary)
+                                    // The song ran out of token budget instead of ending. It was
+                                    // recorded only in result.json, so a song that stopped mid-verse
+                                    // looked like the model giving up rather than a length to raise.
+                                    if song.truncated {
+                                        Label("길이 제한에서 잘림 — 길이를 늘려 다시 만드세요",
+                                              systemImage: "scissors")
+                                            .font(.caption2).foregroundStyle(.orange)
+                                    }
                                 }
                                 Spacer()
                                 // The saved tokens are enough to re-synthesize without generating
@@ -861,6 +907,19 @@ struct ContentView: View {
                                             .font(.caption2)
                                             .help("입력한 가사를 노래에 맞춰 타이밍한 lyrics.srt를 곡 폴더에 저장합니다")
                                             .disabled(!backend.connected || !backend.videoSong.isEmpty)
+                                        // Songs are saved as FLAC, which most things will not play.
+                                        if exporter.working.contains(song.id) {
+                                            ProgressView().controlSize(.small)
+                                        } else if exporter.ready(song) {
+                                            Button("MP3 보기") { exporter.reveal(song) }
+                                                .font(.caption2)
+                                                .help("만들어진 audio.mp3를 Finder에서 보여줍니다")
+                                        } else {
+                                            Button("MP3") { Task { await exporter.convert(song, clearOriginal: deleteOriginalWAV) } }
+                                                .font(.caption2)
+                                                .help("곡 폴더에 audio.mp3로 저장합니다 (LAME V0, 약 245 kbps)")
+                                                .disabled(!AudioExport.installed)
+                                        }
                                     }
                                 }
                                 if song.quality == "draft" && song.status != .stalled {
@@ -877,6 +936,12 @@ struct ContentView: View {
                     }
                 }
                 .listStyle(.plain)
+                // The switch above claims every finished song becomes an MP3. Each song is only
+                // ever offered once, so a redraw does not start the encode again.
+                .onChange(of: backend.songs) { _, songs in
+                    guard autoSaveMP3 else { return }
+                    Task { await exporter.autoExport(songs, clearOriginal: deleteOriginalWAV) }
+                }
             }
         }
         .padding(12)

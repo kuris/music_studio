@@ -41,7 +41,7 @@ final class Players: ObservableObject {
 
     private func load(_ song: Song) {
         unload()
-        let item = AVPlayerItem(url: URL(fileURLWithPath: song.path))
+        let item = AVPlayerItem(url: song.audioFile)
         let p = AVPlayer(playerItem: item)
         player = p; current = song; currentTime = 0
         duration = song.seconds
