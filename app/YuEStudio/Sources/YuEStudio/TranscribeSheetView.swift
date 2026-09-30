@@ -25,6 +25,13 @@ struct TranscribeSheetView: View {
     @State private var editedABC = ""
     @State private var editedLyrics = ""
     @State private var reviewing = ReviewTab.melody
+    @State private var heardLyrics = ""              // what Whisper made of it, to fall back to
+    @State private var lyricsQuery = ""
+    @State private var candidates: [LyricsCandidate] = []
+    @State private var pickedTrack = ""
+    @State private var lookingUp = false
+    @State private var lookupNote = ""
+    @State private var lookupFailed = false
     private enum ReviewTab { case melody, lyrics }
     private var task: String { hum ? "melody-vocal" : storedTask }
     /// A hum has no words to recognise, so the lyrics pass is only offered for real recordings.
@@ -48,7 +55,13 @@ struct TranscribeSheetView: View {
             if t == .review {
                 editedABC = backend.transcribeABC
                 editedLyrics = backend.transcribeLyrics
+                heardLyrics = backend.transcribeLyrics
                 reviewing = .melody
+                // A real song sung by someone else has published words; Whisper's guess at them
+                // is the worst version of the lyric we could hand the cover. Go and look.
+                candidates = []; pickedTrack = ""; lookupNote = ""; lookupFailed = false
+                lyricsQuery = hum ? "" : LyricsFinder.searchQuery(for: source)
+                if !lyricsQuery.isEmpty { Task { await lookUpLyrics(autoApply: true) } }
             }
         }
     }
@@ -131,13 +144,14 @@ struct TranscribeSheetView: View {
     }
 
     @ViewBuilder private var reviewPhase: some View {
-        if !backend.transcribeLyrics.isEmpty {
+        if !hum {
             Picker("", selection: $reviewing) {
                 Text("멜로디").tag(ReviewTab.melody); Text("가사").tag(ReviewTab.lyrics)
             }.pickerStyle(.segmented).labelsHidden()
         }
         if reviewing == .lyrics {
-            Text("인식된 가사 — 틀린 부분을 고친 뒤 사용하세요. 구간 태그는 전사된 곡 구조에서 붙였습니다.")
+            lyricsSearchBar
+            Text("구간 태그는 전사된 곡 구조에서 붙였습니다. 틀린 부분을 고친 뒤 사용하세요.")
                 .font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $editedLyrics).font(.callout).frame(maxHeight: .infinity)
         } else {
@@ -146,6 +160,91 @@ struct TranscribeSheetView: View {
         }
         if !backend.transcribeWarnings.isEmpty {
             Text(backend.transcribeWarnings.joined(separator: " · ")).font(.caption).foregroundStyle(.orange).lineLimit(2)
+        }
+    }
+
+    // MARK: - Published lyrics
+
+    /// Search 벅스 for the real words, and drop them into the structure the transcription found.
+    @ViewBuilder private var lyricsSearchBar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                TextField("곡 검색 (아티스트 제목)", text: $lyricsQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { Task { await lookUpLyrics(autoApply: false) } }
+                Button("벅스에서 가사 찾기") { Task { await lookUpLyrics(autoApply: false) } }
+                    .disabled(lookingUp || lyricsQuery.trimmingCharacters(in: .whitespaces).isEmpty)
+                if lookingUp { ProgressView().controlSize(.small) }
+            }
+            if candidates.count > 1 || (candidates.count == 1 && pickedTrack.isEmpty) {
+                Picker("", selection: $pickedTrack) {
+                    Text("곡 선택…").tag("")
+                    ForEach(candidates) { Text($0.label).tag($0.id) }
+                }
+                .labelsHidden()
+                .disabled(lookingUp)
+                .onChange(of: pickedTrack) { _, id in
+                    guard !id.isEmpty, let hit = candidates.first(where: { $0.id == id }) else { return }
+                    Task { await applyLyrics(of: hit) }
+                }
+            }
+            if !lookupNote.isEmpty {
+                HStack(spacing: 6) {
+                    Text(lookupNote).font(.caption)
+                        .foregroundStyle(lookupFailed ? Color.orange : Color.secondary)
+                    if editedLyrics != heardLyrics && !heardLyrics.isEmpty {
+                        Button("인식된 가사로 되돌리기") { editedLyrics = heardLyrics; lookupNote = ""; pickedTrack = "" }
+                            .font(.caption).buttonStyle(.link)
+                    }
+                }
+            }
+        }
+        .font(.callout)
+    }
+
+    /// Run the search. `autoApply` fills the words in unasked, but only for an unambiguous hit —
+    /// this runs by itself when a review opens, and the wrong lyrics beat the misheard ones nowhere.
+    private func lookUpLyrics(autoApply: Bool) async {
+        let query = lyricsQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, !lookingUp else { return }
+        lookingUp = true; lookupFailed = false
+        lookupNote = "벅스에서 \"\(query)\" 검색 중…"
+        defer { lookingUp = false }
+        do {
+            let hits = try await LyricsFinder.search(query)
+            candidates = hits
+            let (artist, songTitle) = LyricsFinder.split(source.deletingPathExtension().lastPathComponent)
+            if autoApply, let best = hits.first,
+               LyricsFinder.matches(best, artist: artist, title: songTitle) {
+                pickedTrack = best.id
+                await applyLyrics(of: best)
+            } else {
+                lookupNote = "\(hits.count)곡을 찾았습니다 — 맞는 곡을 고르세요."
+            }
+        } catch {
+            candidates = []
+            lookupFailed = true
+            lookupNote = error.localizedDescription
+        }
+    }
+
+    /// Fetch one track's lyrics and fit them to the transcribed sections.
+    private func applyLyrics(of candidate: LyricsCandidate) async {
+        lookingUp = true; lookupFailed = false
+        lookupNote = "\(candidate.label) 가사를 가져오는 중…"
+        defer { lookingUp = false }
+        do {
+            let words = try await LyricsFinder.lyrics(trackID: candidate.id)
+            let fitted = LyricsStructurer.fit(lyrics: words,
+                                              srtPath: backend.transcribeSRT,
+                                              outputDir: backend.transcribeOutput)
+            guard !fitted.text.isEmpty else { throw LyricsLookupError.noLyrics }
+            editedLyrics = fitted.text
+            lookupNote = "\(candidate.label) · \(fitted.note)"
+            reviewing = .lyrics
+        } catch {
+            lookupFailed = true
+            lookupNote = "\(candidate.label): \(error.localizedDescription)"
         }
     }
 
