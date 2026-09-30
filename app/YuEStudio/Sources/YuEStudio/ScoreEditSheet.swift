@@ -83,6 +83,29 @@ enum Score {
 
     /// Style text restating a tempo it already mentions. YuE2 takes the tempo from the ABC and
     /// the style has to describe it consistently, so the two are changed together.
+    /// What tempo a cover of this song should run at once its genre changes.
+    ///
+    /// Not the genre's number outright: a cover is still the same song, and the tune has to keep
+    /// a musical relationship to the original — half-time, double-time, three against four. Meeting
+    /// a metal preset's 150 from a 70 BPM ballad exactly would play the melody at 2.14x, which is
+    /// not a style, just the song played wrong. So the ratio closest to the genre's tempo is picked
+    /// out of the ones a listener hears as the same song, and the original is moved by that.
+    ///
+    /// Distance is measured in log space because tempo is heard as a ratio: 60 to 80 is the step
+    /// that 120 to 160 is, and comparing the differences instead would always favour slowing down.
+    static func tempoFitting(original: Int, genre: Int) -> (bpm: Int, ratio: String)? {
+        guard original > 0, genre > 0 else { return nil }
+        let ratios: [(Double, String)] = [(1.0 / 2, "1/2x"), (2.0 / 3, "2/3x"), (3.0 / 4, "3/4x"),
+                                          (1, "그대로"),
+                                          (4.0 / 3, "4/3x"), (3.0 / 2, "1.5x"), (2, "2x")]
+        let target = Double(genre)
+        guard let best = ratios.min(by: {
+            abs(log(Double(original) * $0.0 / target)) < abs(log(Double(original) * $1.0 / target))
+        }) else { return nil }
+        let bpm = min(220, max(40, Int((Double(original) * best.0).rounded())))
+        return (bpm, best.1)
+    }
+
     static func styleAtTempo(_ style: String, _ bpm: Int) -> String {
         style.replacingOccurrences(of: "\\d+ BPM", with: "\(bpm) BPM", options: .regularExpression)
     }

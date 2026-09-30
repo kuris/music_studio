@@ -10,6 +10,14 @@ enum StylePresets {
         let name: String        // the chip's label
         let prompt: String      // what goes into the style field
         var id: String { name }
+
+        /// The tempo the preset already names, read back out of its own prompt so the genre's
+        /// natural speed is not a second place to edit and drift from.
+        var tempo: Int? {
+            guard let range = prompt.range(of: #"\d+ ?BPM"#, options: [.regularExpression, .caseInsensitive])
+            else { return nil }
+            return Int(prompt[range].prefix(while: \.isNumber))
+        }
     }
 
     static let all: [Preset] = [
@@ -30,6 +38,7 @@ enum StylePresets {
 
     static let names: [String] = all.map(\.name)
     static func prompt(_ name: String) -> String? { all.first { $0.name == name }?.prompt }
+    static func tempo(_ name: String) -> Int? { all.first { $0.name == name }?.tempo }
 }
 
 /// The singer, which YuE2 reads from the style text rather than a request field.

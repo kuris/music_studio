@@ -20,6 +20,7 @@ struct StyleConversionSheet: View {
     @AppStorage("qualityMode") private var qualityMode = "draft-gpu"
     @AppStorage("batch") private var batch = 2
     @AppStorage("randomSeed") private var randomSeed = false
+    @AppStorage("matchGenreTempo") private var matchGenreTempo = true
     private var quality: String { qualityMode.hasPrefix("draft") ? "draft" : "full" }
     private var engines: String { qualityMode.hasSuffix("-ane") ? "gpu+ane" : "gpu" }
     @State private var selectedStyle = ""
@@ -135,6 +136,14 @@ struct StyleConversionSheet: View {
             } else {
                 Label("멜로디 유지" + (Score.tempo(abc).map { " · \($0) BPM" } ?? ""),
                       systemImage: "checkmark.circle")
+                if let planned = plannedTempo {
+                    Label("템포 \(planned.from) → \(planned.to) BPM (\(planned.ratio)) · 길이 ×\(String(format: "%.2f", Double(planned.from) / Double(planned.to)))",
+                          systemImage: "metronome")
+                        .foregroundStyle(Color.accentColor)
+                }
+                Toggle("장르 템포에 맞춰 조정", isOn: $matchGenreTempo)
+                    .toggleStyle(.checkbox).font(.caption)
+                    .help("원곡 템포를 장르 쪽으로 옮깁니다. 같은 곡으로 들리는 배수(1/2, 2/3, 3/4, 4/3, 1.5, 2배)만 씁니다.")
             }
             Label(lyrics.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                   ? "가사 없음 — 연주곡으로 생성됩니다"
@@ -154,6 +163,30 @@ struct StyleConversionSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Move the score toward the genre's tempo, returning the tempo the style should name.
+    /// The ABC is rewritten as well — it is what the melody is played from, so leaving it at the
+    /// original speed under a style naming another is two instructions that contradict.
+    private func retimeForGenre(_ tag: String) -> Int? {
+        let original = Score.tempo(abc)
+        guard matchGenreTempo, let original, let genre = StylePresets.tempo(tag),
+              let fitted = Score.tempoFitting(original: original, genre: genre),
+              fitted.bpm != original
+        else { return original }
+        abc = Score.withTempo(abc, fitted.bpm)
+        backend.append("템포: \(original) → \(fitted.bpm) BPM (\(fitted.ratio), \(tag) 기준 \(genre))")
+        return fitted.bpm
+    }
+
+    /// What the tempo will become if this conversion runs, for the carry-over line to show.
+    private var plannedTempo: (from: Int, to: Int, ratio: String)? {
+        guard matchGenreTempo, !selectedStyle.isEmpty,
+              let original = Score.tempo(abc), let genre = StylePresets.tempo(selectedStyle),
+              let fitted = Score.tempoFitting(original: original, genre: genre),
+              fitted.bpm != original
+        else { return nil }
+        return (original, fitted.bpm, fitted.ratio)
+    }
+
     /// "제목_스타일_커버", built from whatever name the song already carries.
     /// Write the style for the chosen genre, then start the cover.
     ///
@@ -162,7 +195,7 @@ struct StyleConversionSheet: View {
     private func convert() async {
         converting = true
         if let preset = StylePresets.prompt(selectedStyle) {
-            let bpm = Score.tempo(abc)
+            let bpm = retimeForGenre(selectedStyle)
             let plain = StyleWriter.atTempo(preset, bpm)
             // The preset is one line and names a genre; Gemini writes it out for this song,
             // against what the transcription says the song actually is. Anything short of an
